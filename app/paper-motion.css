@@ -1,10 +1,10 @@
 .paper{transform:rotate(var(--tilt,-1deg));transform-origin:50% 8px;animation:paper-appear .5s ease both;transition:box-shadow .2s ease}
 .paper.is-dragging{box-shadow:3px 9px 13px #3e48382e;cursor:grabbing}
-.paper.is-flexing{background:transparent!important;box-shadow:none!important;overflow:visible}
-.paper.is-flexing:before,.paper.is-flexing:after{opacity:0!important}
+.paper:is(.is-flexing,[data-flexing="true"]){background:transparent!important;box-shadow:none!important;overflow:visible}
+.paper:is(.is-flexing,[data-flexing="true"]):before,.paper:is(.is-flexing,[data-flexing="true"]):after{opacity:0!important}
 /* The native tape is hidden along with the sheet. During motion, both are
    rendered into one depth-tested canvas: no top-level tape stacking context. */
-.paper.is-flexing>:not(.paper-flex){opacity:0!important}
+.paper:is(.is-flexing,[data-flexing="true"])>:not(.paper-flex){opacity:0!important}
 .paper{user-select:none;-webkit-user-select:none;-webkit-user-drag:none;cursor:grab}
 .paper *{-webkit-user-drag:none}
 .paper input,.paper textarea{user-select:text;-webkit-user-select:text;cursor:text}
@@ -25,4 +25,7 @@
 .paper.paper-texture-source{transform:none!important;animation:none!important;transition:none!important;box-shadow:none!important;opacity:1!important;min-height:0!important;border-radius:0!important}
 .paper-texture-source:before,.paper-texture-source:after{display:none!important}
 .paper-texture-staging{z-index:-10000;pointer-events:none;contain:layout style}
+.placement-measure{position:fixed;left:-12000px;top:0;width:304px;visibility:hidden;pointer-events:none;contain:layout style}
+.placement-measure>.paper{left:0!important;top:0!important;transform:none!important;animation:none!important;transition:none!important}
+.stage-row{min-height:24px}
 @media(prefers-reduced-motion:reduce){.paper{animation:none!important;transform:rotate(var(--tilt,-1deg))!important}.paper-flex{display:none!important}}

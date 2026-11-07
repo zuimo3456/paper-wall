@@ -37,6 +37,15 @@ for(const dt of [1/120,1/60,1/30])for(const height of [378,860]){
   console.log(`PASS adversarial shake/regrab and bounded recovery: ${Math.round(1/dt)}Hz, height ${height}`);passed++;
 }
 console.log(`${passed} total cloth cases passed`);
+for(const [testSeed,height,hz] of [[7,378,60],[37,860,60],[891,1800,60],[1291,860,165],[9047,378,240],[27011,1800,120]]){
+  const dt=1/hz,cloth=new PaperCloth(326,height,12,Math.min(36,Math.ceil(height/19)));let seed=testSeed;
+  const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
+  for(let n=0;n<30;n++){const u=.03+random()*.94,v=.07+random()*.91;for(let f=0;f<5;f++){cloth.hold({u,v,x:(random()-.5)*1800,y:(random()-.3)*height*2,z:random()*700});cloth.step(dt*.5);cloth.step(dt*.5);}if(n%2===0){cloth.release();cloth.step(dt);}}
+  cloth.release();for(let t=0;t<16;t+=dt){cloth.step(dt*.5);cloth.step(dt*.5);}
+  assert.ok(cloth.nodes.every(p=>[p.x,p.y,p.z].every(Number.isFinite)));assert.ok(cloth.settled,`jittering/intersecting fold must recover: seed ${testSeed}, ${hz}Hz`);
+  passed++;console.log(`PASS randomized tangle recovery: seed ${testSeed}, height ${height}, ${hz}Hz`);
+}
+console.log(`${passed} total cloth cases passed`);
 for(const dt of [1/120,1/60,1/30]){
   const cloth=new PaperCloth(326,378,16,20),advance=()=>{cloth.step(dt*.5);cloth.step(dt*.5);};
   cloth.hold({u:.89,v:.94,x:290,y:208,z:190});for(let t=0;t<1.5;t+=dt)advance();

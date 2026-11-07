@@ -4,6 +4,9 @@ import { useState, useRef, useEffect, useCallback, type FormEvent, type PointerE
 import { withoutServerFields, RECENT_LAYOUT_ID, type SavedItem, type SavedContentItem, type WallLayout, type WallItem, type Paper, type Todo } from "../lib/wall-model";
 import { installPaperMotion, dragPaperMotion, releasePaper, peelPaper } from "../lib/paper-motion";
 import { newId } from "../lib/new-id";
+import {createRoot} from "react-dom/client";
+import {flushSync} from "react-dom";
+import {paperBounds,findEmptyPosition,type Bounds,type Position} from "../lib/paper-placement";
 const ITEMS_URL=(import.meta.env.VITE_WALL_API_BASE||"").replace(/\/$/,"")+"/api/items";
 
 type View = { x: number; y: number; scale: number };
@@ -52,6 +55,7 @@ export default function Wall() {
   const [activePaper,setActivePaper]=useState<string|null>(null);
   const readSeq=useRef(0);
   const initialView=useRef(false);
+  const placementQueue=useRef<Promise<void>>(Promise.resolve());
   useEffect(()=>{if(plane.current)return installPaperMotion(plane.current);},[]);
 
   const refresh=useCallback(async(quiet=false)=>{
@@ -63,7 +67,7 @@ export default function Wall() {
       const data=await response.json() as {items:SavedItem[];error?:string};
       if(!response.ok)throw new Error(data.error || "无法读取墙面");
       if(seq!==readSeq.current || pendingRef.current.size || gesture.current)return;
-      setItems(data.items);setLoaded(true);setSync("saved");setError("");return data.items as SavedItem[];
+      itemsRef.current=data.items;setItems(data.items);setLoaded(true);setSync("saved");setError("");return data.items as SavedItem[];
     } catch(e) {setSync("error");setError(e instanceof Error?e.message:"无法连接，请重试");}
   },[]);
 
@@ -94,7 +98,7 @@ export default function Wall() {
       const response=await fetch(ITEMS_URL,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({item,revision:revision ?? previous?.revision ?? 0})});
       const data=await response.json() as {item:SavedItem;error?:string};
       if(!response.ok){conflict=response.status===409;throw new Error(data.error || "保存失败，请重试");}
-      setItems(current=>{const found=current.some(i=>i.id===item.id);return found?current.map(i=>i.id===item.id?data.item:i):[...current,data.item];});
+      const current=itemsRef.current,found=current.some(i=>i.id===item.id),next=found?current.map(i=>i.id===item.id?data.item:i):[...current,data.item];itemsRef.current=next;setItems(next);
       setSync("saved");return data.item;
     } catch(e) {
       setSync("error");setError(e instanceof Error?e.message:"网络异常，本次操作尚未保存");return null;
@@ -109,18 +113,57 @@ export default function Wall() {
     if(saved&&saved.kind!=="layout")setNotice({text:item.kind==="todo"?"完成了一件事，已收进归档。":"这张纸已收进归档。",undo:()=>{void restore(saved);}});
     return !!saved;
   }
+  function placeInOrder<T>(operation:()=>Promise<T>):Promise<T>{
+    const next=placementQueue.current.catch(()=>{}).then(operation);placementQueue.current=next.then(()=>{},()=>{});return next;
+  }
+  function occupiedBounds(excludeId?:string):Bounds[]{
+    const nodes=[...(plane.current?.querySelectorAll<HTMLElement>(":scope > .paper")||[])],result:Bounds[]=[];
+    const layout=itemsRef.current.find(i=>i.kind==="layout");
+    if(excludeId!==RECENT_LAYOUT_ID){const node=nodes.find(n=>n.classList.contains("recent-paper"));result.push(paperBounds(layout?.kind==="layout"?layout:{x:56,y:62},node?.offsetWidth||326,node?.offsetHeight||378,-1.3));}
+    for(const item of itemsRef.current){if(item.kind!=="paper"||item.archivedAt||item.id===excludeId)continue;const node=nodes.find(n=>n.dataset.paperId===item.id);result.push(paperBounds(item,node?.offsetWidth||304,node?.offsetHeight||400+item.stages.length*95,item.tilt));}
+    return result;
+  }
+  async function freePosition(item:Paper):Promise<Position|null>{
+    await document.fonts.ready;
+    const container=document.createElement("div");container.className="placement-measure";container.inert=true;container.setAttribute("aria-hidden","true");document.body.appendChild(container);
+    const root=createRoot(container);
+    try{
+      // Measure the exact same component, including wrapped title, note and
+      // stage text, at this device's current font sizes and width.
+      flushSync(()=>root.render(<FlowPaperCard item={item} disabled/>));
+      const element=container.querySelector<HTMLElement>(".paper");if(!element||!element.offsetWidth||!element.offsetHeight)return null;
+      return findEmptyPosition(paperBounds({x:0,y:0},element.offsetWidth,element.offsetHeight,item.tilt),occupiedBounds(item.id),item);
+    }finally{flushSync(()=>root.unmount());container.remove();}
+  }
+  function focusPaper(item:Paper){
+    const rect=viewport.current!.getBoundingClientRect(),scale=window.innerWidth<650?Math.min(1,(rect.width-70)/304):viewRef.current.scale;
+    setActivePaper(item.id);setView({scale,x:rect.width/2-(item.x+152)*scale,y:65-item.y*scale});
+  }
+  async function clearRecentSpace(){
+    await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));
+    const element=plane.current?.querySelector<HTMLElement>(".recent-paper");if(!element)return;
+    const layout=itemsRef.current.find(i=>i.kind==="layout"),origin=layout?.kind==="layout"?layout:{x:56,y:62};
+    const position=findEmptyPosition(paperBounds({x:0,y:0},element.offsetWidth,element.offsetHeight,-1.3),occupiedBounds(RECENT_LAYOUT_ID),origin);
+    if(!position){setNotice({text:"近期事项周围没有足够空白，请腾出一些位置。"});return;}
+    if(position.x===origin.x&&position.y===origin.y)return;
+    const saved=await save({id:RECENT_LAYOUT_ID,kind:"layout",title:"近期事项位置",createdAt:layout?.createdAt??now(),archivedAt:null,...position},layout?.revision??0);
+    if(saved){const width=viewport.current?.clientWidth||window.innerWidth,scale=width<650?Math.min(.93,(width-40)/326):viewRef.current.scale;setView({scale,x:(width<650?20:56)-position.x*scale,y:(width<650?24:62)-position.y*scale});}
+  }
   async function restore(item:SavedContentItem) {
-    const current=itemsRef.current.find(i=>i.id===item.id)||item;
-    if(current.kind==="layout")return;
-    const saved=await save({...withoutServerFields(current),archivedAt:null},current.revision);
-    if(saved)setNotice({text:"已放回墙上。"});
+    await placeInOrder(async()=>{
+      const fresh=await refresh(true);if(!fresh)return;flushSync(()=>setItems(fresh));
+      const current=fresh.find(i=>i.id===item.id)||item;if(current.kind==="layout"||current.archivedAt===null)return;
+      let payload=withoutServerFields(current);payload={...payload,archivedAt:null};
+      if(payload.kind==="paper"){const at=await freePosition(payload);if(!at){setNotice({text:"墙面没有足够空白，请先腾出一些位置。"});return;}payload={...payload,...at};}
+      const saved=await save(payload,current.revision);
+      if(saved){if(saved.kind==="paper")focusPaper(saved);else await clearRecentSpace();setNotice({text:"已放回墙上的空白位置。"});}
+    });
   }
   async function addTodo(e:FormEvent) {
     e.preventDefault();const title=quickTodo.trim();if(!title || !loaded || quickBusyRef.current)return;
     quickBusyRef.current=true;setQuickBusy(true);
     const item:Todo={kind:"todo",id:newId(),title,note:"",createdAt:now(),archivedAt:null};
-    const result=await save(item,0);if(result)setQuickTodo("");
-    quickBusyRef.current=false;setQuickBusy(false);
+    try{await placeInOrder(async()=>{const fresh=await refresh(true);if(!fresh)return;flushSync(()=>setItems(fresh));const result=await save(item,0);if(result){setQuickTodo("");await clearRecentSpace();}});}finally{quickBusyRef.current=false;setQuickBusy(false);}
   }
 
   function resetView() {
@@ -136,10 +179,9 @@ export default function Wall() {
   }
   function fitAll() {
     const rect=viewport.current?.getBoundingClientRect();if(!rect)return;
-    const papers=itemsRef.current.filter((i):i is PaperItem=>i.kind==="paper"&&!i.archivedAt);
-    const recent=itemsRef.current.find(i=>i.kind==="layout"),rx=recent?.kind==="layout"?recent.x:56,ry=recent?.kind==="layout"?recent.y:62;
-    const left=Math.min(rx,...papers.map(p=>p.x)),top=Math.min(ry,...papers.map(p=>p.y));
-    const right=Math.max(rx+326,...papers.map(p=>p.x+304)),bottom=Math.max(ry+378,...papers.map(p=>p.y+240+p.stages.length*85));
+    const bounds=occupiedBounds();
+    const left=Math.min(...bounds.map(b=>b.left)),top=Math.min(...bounds.map(b=>b.top));
+    const right=Math.max(...bounds.map(b=>b.right)),bottom=Math.max(...bounds.map(b=>b.bottom));
     const scale=clamp(Math.min((rect.width-60)/(right-left),(rect.height-80)/(bottom-top),1),.3,1.8);
     setView({scale,x:(rect.width-(right-left)*scale)/2-left*scale,y:35-top*scale});
   }
@@ -230,9 +272,8 @@ export default function Wall() {
   }
   function newPaper(){
     const rect=viewport.current!.getBoundingClientRect(),v=viewRef.current;
-    const count=itemsRef.current.filter(i=>i.kind==="paper"&&!i.archivedAt).length;
-    const x=window.innerWidth<650?Math.max(430,(rect.width/2-v.x)/v.scale-152):Math.max(460,(rect.width/2-v.x)/v.scale-80)+count%3*36;
-    const y=Math.max(55,(rect.height*.22-v.y)/v.scale)+count%3*25;
+    const x=(rect.width*.62-v.x)/v.scale-152;
+    const y=(rect.height*.22-v.y)/v.scale;
     setEditor({mode:"paper",at:{x:clamp(x,-2800,5700),y:clamp(y,-2800,5700)}});
   }
   async function submitEditor(data:{title:string;note:string;color:Paper["color"];stages:Paper["stages"]}) {
@@ -240,11 +281,13 @@ export default function Wall() {
     const original=editor.original;
     const base={id:original?.id||newId(),title:data.title,note:data.note,createdAt:original?.createdAt||now(),archivedAt:original?.archivedAt??null};
     const item:WallItem=editor.mode==="todo"?{...base,kind:"todo"}:{...base,kind:"paper",color:data.color,stages:data.stages,x:original?.kind==="paper"?original.x:editor.at!.x,y:original?.kind==="paper"?original.y:editor.at!.y,tilt:original?.kind==="paper"?original.tilt:(Math.random()-.5)*2.4};
-    const result=await save(item,original?.revision??0);
-    if(result){setEditor(null);if(!original&&result.kind==="paper"){
-      const rect=viewport.current!.getBoundingClientRect();const scale=window.innerWidth<650?Math.min(1,(rect.width-70)/304):viewRef.current.scale;
-      setView({scale,x:rect.width/2-(result.x+152)*scale,y:65-result.y*scale});
-    }return true;}return false;
+    return placeInOrder(async()=>{
+      const fresh=await refresh(true);if(!fresh)return false;flushSync(()=>setItems(fresh));
+      let payload=item;
+      if(item.kind==="paper"){const at=await freePosition(item);if(!at){setNotice({text:"墙面没有足够空白，请先腾出一些位置。"});return false;}payload={...item,...at};}
+      const result=await save(payload,original?.revision??0);
+      if(result){setEditor(null);if(result.kind==="paper"&&(!original||original.kind!=="paper"||result.x!==original.x||result.y!==original.y))focusPaper(result);else if(result.kind==="todo")await clearRecentSpace();return true;}return false;
+    });
   }
   async function toggleStage(item:PaperItem,stageId:string){
     const stages=item.stages.map(s=>s.id===stageId?{...s,done:!s.done}:s);
@@ -276,13 +319,7 @@ export default function Wall() {
           <div className="paper-footer"><span>{todos.length?`${String(todos.length).padStart(2,"0")} 件待办`:"留一点空白，也很好"}</span><span className="handwritten">take your time</span></div>
           <button className="paper-curl" type="button" aria-label="轻掀近期事项纸角" title="轻掀纸角，也可以直接拖拽纸面" onClick={e=>peelPaper(e.currentTarget.closest<HTMLElement>(".paper")!)}/>
         </section>
-        {papers.map((item,index)=>{const current=item.stages.findIndex(s=>!s.done),done=item.stages.filter(s=>s.done).length;return <section draggable={false} key={item.id} className={`paper flow-paper ${item.color} ${activePaper===item.id?"is-front":""}`} style={{left:item.x,top:item.y,"--tilt":`${item.tilt}deg`} as React.CSSProperties} aria-label={`流程纸：${item.title}`} onPointerDownCapture={e=>startTopEdge(e,item)} onPointerMove={movePaper} onPointerUp={e=>void endPaper(e)} onPointerCancel={e=>void endPaper(e,true)} onLostPointerCapture={e=>void endPaper(e,true)}>
-          <span className="tape" title="拖动胶带或纸张上沿移动位置"/><div className="paper-drag-handle" title="拖动上沿或左右角移动这张纸"><span className="eyebrow">LITTLE STEPS, BIG THINGS</span><span className="grip-dots" aria-hidden="true">⠿</span></div>
-          <div className="flow-title-row"><h2>{item.title}</h2><IconButton name="edit" label={`编辑流程：${item.title}`} onClick={()=>setEditor({mode:"paper",original:item})} disabled={pending.has(item.id)}/></div>
-          {item.note?<p className="flow-note">{item.note}</p>:null}<div className="flow-progress"><span>{done===item.stages.length?"每一步，都算数。":"一点一点，往前走。"}</span><span>{done} / {item.stages.length}</span></div><div className="progress-track"><span style={{width:`${done/item.stages.length*100}%`}}/></div>
-          <ol className="stage-list">{item.stages.map((stage,n)=><li className={`${stage.done?"stage-done":""} ${current===n?"stage-current":""}`} key={stage.id}><div className="stage-row"><button className={`check-circle ${stage.done?"checked":""}`} aria-label={`${stage.done?"撤销完成":"完成阶段"}：${stage.text}`} aria-pressed={stage.done} disabled={pending.has(item.id)} onClick={()=>void toggleStage(item,stage.id)}><Icon name="check" size={12}/></button><span>{stage.text}</span>{current===n?<span className="current-dot" title="当前阶段"/>:null}</div>{n<item.stages.length-1?<span className="stage-arrow"><Icon name="arrow" size={21}/></span>:null}</li>)}</ol>
-          <div className="flow-bottom"><span className="paper-number">PLAN {String(index+1).padStart(2,"0")}</span><button className="text-button" onClick={()=>void archive(item)} disabled={pending.has(item.id)}><Icon name="archive" size={14}/>{done===item.stages.length?"完成，归档":"收进归档"}</button></div><button className="paper-curl" type="button" aria-label={`轻掀纸角：${item.title}`} title="轻掀纸角，也可以直接拖拽纸面" onClick={e=>peelPaper(e.currentTarget.closest<HTMLElement>(".paper")!)}/>
-        </section>;})}
+        {papers.map((item,index)=><FlowPaperCard key={item.id} item={item} index={index} active={activePaper===item.id} disabled={pending.has(item.id)} onStart={e=>startTopEdge(e,item)} onMove={movePaper} onEnd={(e,cancel)=>void endPaper(e,cancel)} onEdit={()=>setEditor({mode:"paper",original:item})} onToggle={id=>void toggleStage(item,id)} onArchive={()=>void archive(item)}/>)}
       </div>
       <div className="wall-caption" aria-hidden="true"><span>给计划一个位置，</span><span>给自己一点时间。</span></div>
     </main>
@@ -293,6 +330,17 @@ export default function Wall() {
     {editor?<EditDialog key={editor.original?.id||editor.mode} editor={editor} onClose={()=>setEditor(null)} onSubmit={submitEditor} onArchive={editor.original?()=>void archive(editor.original!).then(ok=>{if(ok)setEditor(null);}):undefined}/>:null}
     {archiveOpen?<ArchiveDialog items={archived} pending={pending} onClose={()=>setArchiveOpen(false)} onRestore={restore} onExport={exportData}/>:null}
   </div>;
+}
+
+function FlowPaperCard({item,index=0,active=false,disabled=false,onStart,onMove,onEnd,onEdit,onToggle,onArchive}:{item:Paper;index?:number;active?:boolean;disabled?:boolean;onStart?:(e:ReactPointerEvent<HTMLElement>)=>void;onMove?:(e:ReactPointerEvent<HTMLElement>)=>void;onEnd?:(e:ReactPointerEvent<HTMLElement>,cancel:boolean)=>void;onEdit?:()=>void;onToggle?:(id:string)=>void;onArchive?:()=>void}) {
+  const current=item.stages.findIndex(s=>!s.done),done=item.stages.filter(s=>s.done).length;
+  return <section data-paper-id={item.id} draggable={false} className={`paper flow-paper ${item.color} ${active?"is-front":""}`} style={{left:item.x,top:item.y,"--tilt":`${item.tilt}deg`} as React.CSSProperties} aria-label={`流程纸：${item.title}`} onPointerDownCapture={onStart} onPointerMove={onMove} onPointerUp={e=>onEnd?.(e,false)} onPointerCancel={e=>onEnd?.(e,true)} onLostPointerCapture={e=>onEnd?.(e,true)}>
+          <span className="tape" title="拖动胶带或纸张上沿移动位置"/><div className="paper-drag-handle" title="拖动上沿或左右角移动这张纸"><span className="eyebrow">LITTLE STEPS, BIG THINGS</span><span className="grip-dots" aria-hidden="true">⠿</span></div>
+          <div className="flow-title-row"><h2>{item.title}</h2><IconButton name="edit" label={`编辑流程：${item.title}`} onClick={()=>onEdit?.()} disabled={disabled}/></div>
+          {item.note?<p className="flow-note">{item.note}</p>:null}<div className="flow-progress"><span>{done===item.stages.length?"每一步，都算数。":"一点一点，往前走。"}</span><span>{done} / {item.stages.length}</span></div><div className="progress-track"><span style={{width:`${done/item.stages.length*100}%`}}/></div>
+          <ol className="stage-list">{item.stages.map((stage,n)=><li className={`${stage.done?"stage-done":""} ${current===n?"stage-current":""}`} key={stage.id}><div className="stage-row"><button className={`check-circle ${stage.done?"checked":""}`} aria-label={`${stage.done?"撤销完成":"完成阶段"}：${stage.text}`} aria-pressed={stage.done} disabled={disabled} onClick={()=>onToggle?.(stage.id)}><Icon name="check" size={12}/></button><span>{stage.text}</span>{current===n?<span className="current-dot" title="当前阶段"/>:null}</div>{n<item.stages.length-1?<span className="stage-arrow"><Icon name="arrow" size={21}/></span>:null}</li>)}</ol>
+          <div className="flow-bottom"><span className="paper-number">PLAN {String(index+1).padStart(2,"0")}</span><button className="text-button" onClick={onArchive} disabled={disabled}><Icon name="archive" size={14}/>{done===item.stages.length?"完成，归档":"收进归档"}</button></div><button className="paper-curl" type="button" aria-label={`轻掀纸角：${item.title}`} title="轻掀纸角，也可以直接拖拽纸面" onClick={e=>peelPaper(e.currentTarget.closest<HTMLElement>(".paper")!)}/>
+        </section>;
 }
 
 function Modal({children,onClose,label,className=""}:{children:ReactNode;onClose:()=>void;label:string;className?:string}) {

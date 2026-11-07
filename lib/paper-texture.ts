@@ -38,7 +38,7 @@ export function paperTexture(paper:HTMLElement):Promise<PaperTexture>{
     await document.fonts.ready;
     const container=document.createElement("div");container.className="paper-texture-staging";container.setAttribute("aria-hidden","true");container.inert=true;
     Object.assign(container.style,{position:"fixed",left:"-12000px",top:"0",width:`${paper.offsetWidth}px`,height:`${paper.offsetHeight}px`,pointerEvents:"none"});
-    const source=paper.cloneNode(true) as HTMLElement;source.classList.remove("is-flexing","is-dragging","paper-writing","is-front");source.classList.add("paper-texture-source");source.removeAttribute("aria-label");source.inert=true;
+    const source=paper.cloneNode(true) as HTMLElement;source.classList.remove("is-flexing","is-dragging","paper-writing","is-front");source.removeAttribute("data-flexing");source.classList.add("paper-texture-source");source.removeAttribute("aria-label");source.inert=true;
     Object.assign(source.style,{position:"relative",left:"0",top:"0",margin:"0",width:`${paper.offsetWidth}px`,height:`${paper.offsetHeight}px`});
     for(const node of source.querySelectorAll(".paper-flex"))node.remove();for(const node of source.querySelectorAll("[id]"))node.removeAttribute("id");
     container.appendChild(source);document.body.appendChild(container);

@@ -22,6 +22,7 @@ export class PaperCloth{
   private windZ=0;
   private returnAge:number|null=null;
   private stuckAge=0;
+  private bestDeviation=Infinity;
   private recoveryStart:Float64Array|null=null;
   private recoveryAge=0;
   constructor(width:number,height:number,columns=16,rows=24){
@@ -49,7 +50,7 @@ export class PaperCloth{
   index(x:number,y:number){return y*(this.columns+1)+x;}
   hold(value:ClothContact){
     this.returnAge=null;
-    this.stuckAge=0;this.recoveryStart=null;this.recoveryAge=0;
+    this.stuckAge=0;this.bestDeviation=Infinity;this.recoveryStart=null;this.recoveryAge=0;
     const u=clamp(value.u,.01,.99),v=clamp(value.v,1.5/this.rows,.995);
     if(!this.grab||Math.abs(this.grab.u-u)>.0001||Math.abs(this.grab.v-v)>.0001){
       const gx=u*this.columns,gy=v*this.rows,x=Math.floor(gx),y=Math.floor(gy),tx=gx-x,ty=gy-y;
@@ -63,7 +64,7 @@ export class PaperCloth{
   }
   contact(){let x=0,y=0,z=0;for(const a of this.weights){const p=this.nodes[a.index];x+=p.x*a.weight;y+=p.y*a.weight;z+=p.z*a.weight;}return {x,y,z};}
   release(){this.target=null;this.grab=null;this.weights=[];this.windX=0;this.windZ=0;this.returnAge??=0;}
-  gust(x:number,z:number){this.returnAge=null;this.stuckAge=0;this.recoveryStart=null;this.recoveryAge=0;this.windX=clamp(x,-.65,.65);this.windZ=clamp(z,0,.7);}
+  gust(x:number,z:number){this.returnAge=null;this.stuckAge=0;this.bestDeviation=Infinity;this.recoveryStart=null;this.recoveryAge=0;this.windX=clamp(x,-.65,.65);this.windZ=clamp(z,0,.7);}
   private constrainGrab(){
     if(!this.grab)return;
     const current=this.contact(),denominator=this.weights.reduce((sum,a)=>sum+(this.nodes[a.index].fixed?0:a.weight*a.weight),0);
@@ -73,7 +74,7 @@ export class PaperCloth{
   }
   step(dt:number){
     if(this.returnAge!==null&&!this.grab)this.returnAge+=dt;
-    const f=clamp(dt*60,.25,1),damping=Math.pow(this.grab ? .95 : .978,f);
+    const f=clamp(dt*60,.01,1),damping=Math.pow(this.grab ? .95 : .978,f);
     // A rare, motionless tangle uses a slow, eased unfold. It does not apply
     // to ordinary releases and cannot inject artificial recoil into velocity.
     if(this.recoveryStart){
@@ -85,13 +86,13 @@ export class PaperCloth{
       }
       return;
     }
-    // Ordinary releases keep their momentum. Only a large fold that has
-    // actually stopped moving receives the slow exceptional unfolding above.
-    if(this.returnAge!==null&&this.returnAge>2.8){
-      let speed=0,deviation=0;
-      for(const p of this.nodes){speed=Math.max(speed,Math.hypot(p.vx,p.vy,p.vz));deviation=Math.max(deviation,Math.hypot(p.x-p.rx,p.y-p.ry,p.z));}
-      this.stuckAge=speed<.22&&deviation>Math.max(14,this.height*.06)?this.stuckAge+dt:0;
-      if(this.stuckAge>.7){this.recoveryStart=new Float64Array(this.nodes.flatMap(p=>[p.x,p.y,p.z]));this.recoveryAge=0;return;}
+    // Track actual unfolding progress, not just velocity. Intersecting folds
+    // can keep jittering indefinitely without getting any closer to flat.
+    if(this.returnAge!==null){
+      let deviation=0;for(const p of this.nodes)deviation=Math.max(deviation,Math.hypot(p.x-p.rx,p.y-p.ry,p.z));
+      if(!Number.isFinite(this.bestDeviation)||deviation<this.bestDeviation-Math.max(.2,this.bestDeviation*.015)){this.bestDeviation=deviation;this.stuckAge=0;}
+      else this.stuckAge+=dt;
+      if(this.returnAge>2.8&&deviation>2&&this.stuckAge>1.8){this.recoveryStart=new Float64Array(this.nodes.flatMap(p=>[p.x,p.y,p.z]));this.recoveryAge=0;return;}
     }
     const springX=this.grab ? .0025 : .0006;
     const springY=this.grab ? .002 : .00045;

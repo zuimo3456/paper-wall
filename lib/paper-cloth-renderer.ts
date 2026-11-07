@@ -78,7 +78,7 @@ export class PaperClothRenderer{
     this.tape={x:tape?.offsetLeft??cloth.width/2-43,y:tape?.offsetTop??-12,width:tape?.offsetWidth??86,height:tape?.offsetHeight??28,angle:Math.atan2(matrix.b,matrix.a)};
     gl.enable(gl.DEPTH_TEST);gl.depthFunc(gl.LEQUAL);gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);gl.frontFace(gl.CW);
     this.onLost=event=>{event.preventDefault();onLost();};this.canvas.addEventListener("webglcontextlost",this.onLost);
-    this.layer.appendChild(this.canvas);paper.appendChild(this.layer);paper.classList.add("is-flexing");
+    this.layer.appendChild(this.canvas);paper.appendChild(this.layer);paper.dataset.flexing="true";paper.classList.add("is-flexing");
   }
   private attribute(name:string,buffer:WebGLBuffer,data:Float32Array,size:number){const gl=this.gl;gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,data,gl.DYNAMIC_DRAW);const location=gl.getAttribLocation(this.program,name);gl.enableVertexAttribArray(location);gl.vertexAttribPointer(location,size,gl.FLOAT,false,0,0);}
   pick(x:number,y:number){
@@ -121,5 +121,5 @@ export class PaperClothRenderer{
     const path=outline.map(i=>{const p=cloth.nodes[i];return `${(p.x-p.z*.46).toFixed(1)},${(p.y+p.z*.25).toFixed(1)}`;});this.shadowPath.setAttribute("d",`M${path.join(" L")} Z`);this.shadow.style.filter=`blur(${(3+totalZ/cloth.nodes.length*.05).toFixed(1)}px)`;
     this.paper.dataset.flexDepth=String(Math.round(maxZ));this.paper.dataset.flexMesh=`${cloth.columns}x${cloth.rows}`;
   }
-  destroy(){const gl=this.gl;this.canvas.removeEventListener("webglcontextlost",this.onLost);for(const buffer of [this.positionBuffer,this.normalBuffer,this.uvBuffer,this.indexBuffer])gl.deleteBuffer(buffer);gl.deleteTexture(this.paperTexture);gl.deleteTexture(this.tapeTexture);gl.deleteProgram(this.program);this.layer.remove();this.paper.classList.remove("is-flexing");delete this.paper.dataset.flexDepth;delete this.paper.dataset.flexMesh;}
+  destroy(){const gl=this.gl;this.canvas.removeEventListener("webglcontextlost",this.onLost);for(const buffer of [this.positionBuffer,this.normalBuffer,this.uvBuffer,this.indexBuffer])gl.deleteBuffer(buffer);gl.deleteTexture(this.paperTexture);gl.deleteTexture(this.tapeTexture);gl.deleteProgram(this.program);this.layer.remove();this.paper.classList.remove("is-flexing");delete this.paper.dataset.flexing;delete this.paper.dataset.flexDepth;delete this.paper.dataset.flexMesh;}
 }
