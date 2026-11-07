@@ -13,8 +13,9 @@ type View = { x: number; y: number; scale: number };
 type Editor = { mode: "todo" | "paper"; original?: SavedContentItem; at?: {x:number;y:number} };
 type PaperItem = SavedItem & Paper;
 type TodoItem = SavedItem & Todo;
-type IconName = "plus" | "archive" | "close" | "minus" | "home" | "edit" | "undo" | "check" | "refresh" | "download" | "arrow";
+type IconName = "plus" | "archive" | "close" | "minus" | "home" | "edit" | "undo" | "check" | "refresh" | "download" | "arrow" | "move";
 const paths: Record<IconName,string> = {
+  move:"M12 2v20M2 12h20m-7-7-3-3-3 3m6 14-3 3-3-3M5 9l-3 3 3 3m14-6 3 3-3 3",
   plus:"M12 5v14M5 12h14", archive:"M4 8h16v12H4zM3 4h18v4H3zM9 12h6", close:"m6 6 12 12M6 18 18 6", minus:"M5 12h14",
   home:"m3 11 9-8 9 8M6 10v10h12V10M10 20v-6h4v6",edit:"m15 4 5 5M4 20l5-1L21 7a2 2 0 0 0-4-4L5 15z",undo:"M4 9h10a6 6 0 0 1 0 12M4 9l5-5M4 9l5 5",
   check:"m5 12 4 4L19 6", refresh:"M20 7v5h-5M4 17v-5h5M5.4 7a8 8 0 0 1 13-2L20 8M4 16l1.6 3a8 8 0 0 0 13-2",download:"M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5",arrow:"M12 4v15m-5-5 5 5 5-5",
@@ -52,6 +53,7 @@ export default function Wall() {
   const touchCamera=useRef(false);
   const suppressClickUntil=useRef(0);
   const [dragging,setDragging]=useState(false);
+  const [wallPanMode,setWallPanMode]=useState(false);
   const [activePaper,setActivePaper]=useState<string|null>(null);
   const readSeq=useRef(0);
   const initialView=useRef(false);
@@ -197,9 +199,18 @@ export default function Wall() {
   },[]);
 
   function pointSummary(){const values=[...points.current.values()];const center={x:values.reduce((s,p)=>s+p.x,0)/values.length,y:values.reduce((s,p)=>s+p.y,0)/values.length};const distance=values.length>1?Math.hypot(values[0].x-values[1].x,values[0].y-values[1].y):0;return {center,distance,count:values.length};}
-  function startPan(e:ReactPointerEvent<HTMLDivElement>) {
+  function captureViewportDown(e:ReactPointerEvent<HTMLDivElement>){
+    touchStart(e);if(touchCamera.current)return;
+    if(e.button===1||(wallPanMode&&e.button===0)){
+      if(e.button===0&&(e.target as HTMLElement).closest("input,textarea,[contenteditable=true]"))return;
+      startPan(e,true);
+    }
+  }
+  function startPan(e:ReactPointerEvent<HTMLElement>,anywhere=false) {
     if(touchCamera.current)return;
-    if(e.button!==0 || (e.target as HTMLElement).closest(".paper,button,input,textarea"))return;
+    if(e.button!==0&&!(anywhere&&e.button===1))return;
+    if(!anywhere&&(e.target as HTMLElement).closest(".paper,button,input,textarea"))return;
+    if(anywhere){e.preventDefault();e.stopPropagation();}
     e.currentTarget.setPointerCapture(e.pointerId);points.current.set(e.pointerId,{x:e.clientX,y:e.clientY});
     const p=pointSummary();pan.current={view:viewRef.current,point:p.center,distance:p.distance,count:p.count};setDragging(true);
   }
@@ -208,6 +219,7 @@ export default function Wall() {
     points.current.set(e.pointerId,{x:e.clientX,y:e.clientY});const p=pointSummary(),initial=pan.current;
     const rect=viewport.current!.getBoundingClientRect();const scale=p.count>1&&initial.distance?clamp(initial.view.scale*p.distance/initial.distance,.3,1.8):initial.view.scale;
     const ratio=scale/initial.view.scale;
+    if(Math.hypot(p.center.x-initial.point.x,p.center.y-initial.point.y)>4)suppressClickUntil.current=Date.now()+350;
     setView({scale,x:p.center.x-rect.left-(initial.point.x-rect.left-initial.view.x)*ratio,y:p.center.y-rect.top-(initial.point.y-rect.top-initial.view.y)*ratio});
   }
   function endPan(e:ReactPointerEvent<HTMLDivElement>) {
@@ -306,7 +318,7 @@ export default function Wall() {
   const statusText=sync==="loading"?"正在打开墙面":sync==="saving"?"正在保存":sync==="error"?"连接中断":"已同步";
   return <div className="app-shell">
     <header className="topbar"><a className="brand" href={import.meta.env.BASE_URL||"/"} aria-label="纸上首页"><span className="brand-mark"><span/></span><span>纸上<span className="brand-dot">。</span></span></a><span className="brand-divider"/><span className="room-label">我的事项墙</span><div className="topbar-right"><span className={`sync-status ${sync}`} aria-live="polite"><span/>{statusText}</span><button className="quiet-button archive-button" onClick={()=>setArchiveOpen(true)}><Icon name="archive"/><span>归档盒</span>{archived.length>0?<b>{archived.length}</b>:null}</button><button className="primary add-paper" onClick={newPaper} disabled={!loaded}><Icon name="plus"/><span>贴一张纸</span></button></div></header>
-    <main ref={viewport} className={`wall-viewport ${dragging?"is-panning":""}`} aria-label="事项墙，可在空白处拖动" onPointerDownCapture={touchStart} onPointerMoveCapture={touchMove} onPointerUpCapture={touchEnd} onPointerCancelCapture={touchEnd} onClickCapture={e=>{if(Date.now()<suppressClickUntil.current){e.preventDefault();e.stopPropagation();}}} onPointerDown={startPan} onPointerMove={movePan} onPointerUp={endPan} onPointerCancel={endPan}>
+    <main ref={viewport} className={`wall-viewport ${dragging?"is-panning":""} ${wallPanMode?"wall-pan-mode":""}`} aria-label="事项墙，可在空白处拖动" onPointerDownCapture={captureViewportDown} onPointerMoveCapture={touchMove} onPointerUpCapture={touchEnd} onPointerCancelCapture={touchEnd} onClickCapture={e=>{if(Date.now()<suppressClickUntil.current){e.preventDefault();e.stopPropagation();}}} onPointerDown={e=>startPan(e)} onPointerMove={movePan} onPointerUp={endPan} onPointerCancel={endPan}>
       <div className="wall-grain"/>
       <div ref={plane} className="wall-plane" style={{transform:`translate(${view.x}px,${view.y}px) scale(${view.scale})`}}>
         <section draggable={false} className={`paper recent-paper ${activePaper===RECENT_LAYOUT_ID?"is-front":""}`} style={{left:recent?.kind==="layout"?recent.x:56,top:recent?.kind==="layout"?recent.y:62}} aria-label="近期事项" onPointerDownCapture={e=>startTopEdge(e)} onPointerMove={movePaper} onPointerUp={e=>void endPaper(e)} onPointerCancel={e=>void endPaper(e,true)} onLostPointerCapture={e=>void endPaper(e,true)}>
@@ -323,8 +335,8 @@ export default function Wall() {
       </div>
       <div className="wall-caption" aria-hidden="true"><span>给计划一个位置，</span><span>给自己一点时间。</span></div>
     </main>
-    <div className="wall-controls"><IconButton label="缩小墙面" name="minus" onClick={()=>zoom(1/1.15)}/><span className="zoom-value">{Math.round(view.scale*100)}%</span><IconButton label="放大墙面" name="plus" onClick={()=>zoom(1.15)}/><span className="control-divider"/><IconButton label="回到近期事项" name="home" onClick={resetView}/><button className="fit-button" title="查看全部纸张" onClick={fitAll}>全览</button></div>
-    <footer className="bottom-bar"><span className="date-label">{date}</span><span className="gesture-hint">拖动空白处移动墙面 <i>·</i> 滚轮 / 双指缩放 <i>·</i> 拖动纸张上沿摆放</span><span className="small-motto">不着急，一步一步来。</span></footer>
+    <div className="wall-controls"><IconButton label="缩小墙面" name="minus" onClick={()=>zoom(1/1.15)}/><span className="zoom-value">{Math.round(view.scale*100)}%</span><IconButton label="放大墙面" name="plus" onClick={()=>zoom(1.15)}/><span className="control-divider"/><button type="button" className={`fit-button pan-button ${wallPanMode?"selected":""}`} aria-label="拖墙模式" aria-pressed={wallPanMode} title="开启后可从纸面拖动整面墙；鼠标中键也可直接拖墙" onClick={()=>setWallPanMode(v=>!v)}><Icon name="move" size={16}/><span>拖墙</span></button><IconButton label="回到近期事项" name="home" onClick={resetView}/><button className="fit-button" title="查看全部纸张" onClick={fitAll}>全览</button></div>
+    <footer className="bottom-bar"><span className="date-label">{date}</span><span className="gesture-hint">{wallPanMode?"拖动任意纸面移动墙面":"空白处 / 中键拖动墙面"} <i>·</i> 滚轮 / 双指缩放 <i>·</i> 拖动纸张上沿摆放</span><span className="small-motto">不着急，一步一步来。</span></footer>
     {error?<div className="error-banner" role="alert"><span>{error}</span><button className="text-button" onClick={()=>void refresh()} disabled={pending.size>0}><Icon name="refresh" size={15}/>重试</button></div>:null}
     {notice?<div className="toast" role="status"><span className="toast-check"><Icon name="check" size={15}/></span>{notice.text}{notice.undo?<button onClick={()=>{notice.undo?.();setNotice(null);}}>撤销</button>:null}<IconButton name="close" label="关闭提示" onClick={()=>setNotice(null)}/></div>:null}
     {editor?<EditDialog key={editor.original?.id||editor.mode} editor={editor} onClose={()=>setEditor(null)} onSubmit={submitEditor} onArchive={editor.original?()=>void archive(editor.original!).then(ok=>{if(ok)setEditor(null);}):undefined}/>:null}

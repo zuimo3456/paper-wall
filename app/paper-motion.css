@@ -28,4 +28,10 @@
 .placement-measure{position:fixed;left:-12000px;top:0;width:304px;visibility:hidden;pointer-events:none;contain:layout style}
 .placement-measure>.paper{left:0!important;top:0!important;transform:none!important;animation:none!important;transition:none!important}
 .stage-row{min-height:24px}
+.pan-button{display:inline-flex;align-items:center;gap:5px;padding:6px 8px;border-radius:3px}
+.pan-button.selected{background:#dce5d1;color:#536a43}
+.wall-pan-mode .paper,.wall-pan-mode .paper *{cursor:grab!important}
+.wall-pan-mode.is-panning,.wall-pan-mode.is-panning .paper,.wall-pan-mode.is-panning .paper *{cursor:grabbing!important}
+.wall-pan-mode .paper input,.wall-pan-mode .paper textarea{cursor:text!important}
+.wall-viewport{overflow:clip;overflow-anchor:none}
 @media(prefers-reduced-motion:reduce){.paper{animation:none!important;transform:rotate(var(--tilt,-1deg))!important}.paper-flex{display:none!important}}

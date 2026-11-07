@@ -29,8 +29,8 @@ class FlexiblePaper{
   private wake(){if(!this.frame&&!this.dead){this.previous=performance.now();this.frame=requestAnimationFrame(this.tick);}}
   private tick=(time:number)=>{
     this.frame=0;if(this.dead||!this.paper.isConnected||reduced()){this.destroy();return;}
-    const dt=Math.min(1/30,(time-this.previous)/1000);this.previous=time;
-    this.cloth.step(dt*.5);this.cloth.step(dt*.5);this.renderer.draw();
+    const dt=Math.max(0,(time-this.previous)/1000);this.previous=time;
+    this.cloth.step(dt);this.renderer.draw();
     if(!this.cloth.grab&&this.cloth.settled&&time-this.releasedAt>600){this.destroy();return;}
     this.frame=requestAnimationFrame(this.tick);
   };
