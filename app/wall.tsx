@@ -261,13 +261,20 @@ export default function Wall() {
 
 function Modal({children,onClose,label,className=""}:{children:ReactNode;onClose:()=>void;label:string;className?:string}) {
   const ref=useRef<HTMLDivElement>(null);
+  // Closing may depend on current state (for example, whether a save is pending).
+  // Keep that callback fresh without restarting the dialog's focus lifecycle.
+  const onCloseRef=useRef(onClose);
+  useEffect(()=>{onCloseRef.current=onClose;},[onClose]);
   useEffect(()=>{
     const previous=document.activeElement as HTMLElement|null;
     const focusable=()=>ref.current?.querySelectorAll<HTMLElement>('button:not([disabled]),input:not([disabled]),textarea:not([disabled]),a[href],[tabindex="0"]');
-    const timer=setTimeout(()=>{const el=ref.current?.querySelector<HTMLElement>("input,textarea")||focusable()?.[0];el?.focus();},30);
-    const handler=(e:KeyboardEvent)=>{if(e.key==="Escape"){e.preventDefault();onClose();}if(e.key==="Tab"){const all=focusable();if(!all?.length)return;const first=all[0],last=all[all.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}};
-    document.addEventListener("keydown",handler);return()=>{clearTimeout(timer);document.removeEventListener("keydown",handler);previous?.focus();};
-  },[onClose]);
+    if(!ref.current?.contains(document.activeElement)){
+      const initial=ref.current?.querySelector<HTMLElement>("input:not([disabled]),textarea:not([disabled])")||focusable()?.[0];
+      initial?.focus();
+    }
+    const handler=(e:KeyboardEvent)=>{if(e.key==="Escape"){e.preventDefault();onCloseRef.current();}if(e.key==="Tab"){const all=focusable();if(!all?.length)return;const first=all[0],last=all[all.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}};
+    document.addEventListener("keydown",handler);return()=>{document.removeEventListener("keydown",handler);if(previous?.isConnected)previous.focus();};
+  },[]);
   return <div className="modal-overlay" onPointerDown={e=>{if(e.target===e.currentTarget)onClose();}}><div ref={ref} className={`modal ${className}`} role="dialog" aria-modal="true" aria-label={label}>{children}</div></div>;
 }
 function EditDialog({editor,onClose,onSubmit,onArchive}:{editor:Editor;onClose:()=>void;onSubmit:(data:{title:string;note:string;color:Paper["color"];stages:Paper["stages"]})=>Promise<boolean>;onArchive?:()=>void}) {
