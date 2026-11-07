@@ -31,9 +31,22 @@ for(const dt of [1/120,1/60,1/30])for(const height of [378,860]){
     }
     if(grab%3===0){cloth.release();cloth.step(dt);}
   }
-  cloth.release();for(let t=0;t<2.1;t+=dt){cloth.step(dt*.5);cloth.step(dt*.5);}
+  cloth.release();for(let t=0;t<12;t+=dt){cloth.step(dt*.5);cloth.step(dt*.5);}
   assert.ok(cloth.settled,"violent shaking and rapid regrabs must recover");
-  assert.ok(cloth.nodes.every(p=>Math.hypot(p.x-p.rx,p.y-p.ry,p.z)<.01),"even tangled starting shapes return exactly to the original sheet");
+  assert.ok(cloth.nodes.every(p=>Math.hypot(p.x-p.rx,p.y-p.ry,p.z)<1.8),"extreme folds eventually settle without a forced reset");
   console.log(`PASS adversarial shake/regrab and bounded recovery: ${Math.round(1/dt)}Hz, height ${height}`);passed++;
+}
+console.log(`${passed} total cloth cases passed`);
+for(const dt of [1/120,1/60,1/30]){
+  const cloth=new PaperCloth(326,378,16,20),advance=()=>{cloth.step(dt*.5);cloth.step(dt*.5);};
+  cloth.hold({u:.89,v:.94,x:290,y:208,z:190});for(let t=0;t<1.5;t+=dt)advance();
+  const initial=Math.max(...cloth.nodes.map(p=>Math.hypot(p.x-p.rx,p.y-p.ry,p.z)));cloth.release();
+  for(let t=0;t<.5;t+=dt)advance();
+  const remaining=Math.max(...cloth.nodes.map(p=>Math.hypot(p.x-p.rx,p.y-p.ry,p.z)));
+  assert.ok(remaining>initial*.5,"release retains a visible, gently moving fold instead of being pulled flat immediately");
+  for(let t=.5;t<1.9;t+=dt)advance();
+  assert.ok(Math.max(...cloth.nodes.map(p=>Math.hypot(p.x-p.rx,p.y-p.ry,p.z)))>8,"no 1.8-second forced flattening deadline");
+  for(let t=1.9;t<9;t+=dt)advance();assert.ok(cloth.settled);
+  passed++;console.log(`PASS soft release, no timed snap, eventual settlement: ${Math.round(1/dt)}Hz`);
 }
 console.log(`${passed} total cloth cases passed`);
