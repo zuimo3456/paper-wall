@@ -1,4 +1,4 @@
-import { getChatGPTUser } from "../../chatgpt-auth";
+import { singleWallId } from "../../../lib/single-wall";
 import { getDb } from "../../../db";
 import { wallRecords } from "../../../db/schema";
 import { and, eq, desc } from "drizzle-orm";
@@ -7,10 +7,8 @@ export const dynamic = "force-dynamic";
 const headers = { "Cache-Control": "private, no-store" };
 function serialize(row: typeof wallRecords.$inferSelect) { return { ...JSON.parse(row.payload), revision: row.revision, updatedAt: row.updatedAt }; }
 export async function GET() {
-  const user = await getChatGPTUser();
-  if (!user) return Response.json({ error: "请重新登录后重试" }, { status: 401, headers });
   try {
-    const rows = await getDb().select().from(wallRecords).where(eq(wallRecords.userId, user.userId)).orderBy(desc(wallRecords.updatedAt));
+    const rows = await getDb().select().from(wallRecords).where(eq(wallRecords.userId, singleWallId())).orderBy(desc(wallRecords.updatedAt));
     return Response.json({ items: rows.map(serialize) }, { headers });
   } catch (e) {
     console.error("Wall read failed", e instanceof Error ? e.message : "unknown");
@@ -18,8 +16,6 @@ export async function GET() {
   }
 }
 export async function PUT(request: Request) {
-  const user = await getChatGPTUser();
-  if (!user) return Response.json({ error: "登录已过期，请重新登录" }, { status: 401, headers });
   const origin = request.headers.get("origin");
   if (origin && origin !== new URL(request.url).origin) return Response.json({ error: "请求来源不匹配" }, { status: 403, headers });
   let parsed;
@@ -32,10 +28,11 @@ export async function PUT(request: Request) {
   const { item, revision } = parsed.data;
   try {
     const db = getDb();
+    const wallId = singleWallId();
     const values = { kind: item.kind, payload: JSON.stringify(item), revision: revision + 1, updatedAt: Date.now() };
     const rows = revision === 0
-      ? await db.insert(wallRecords).values({ ...values, userId: user.userId, id: item.id }).onConflictDoNothing().returning()
-      : await db.update(wallRecords).set(values).where(and(eq(wallRecords.userId, user.userId), eq(wallRecords.id, item.id), eq(wallRecords.revision, revision), eq(wallRecords.kind, item.kind))).returning();
+      ? await db.insert(wallRecords).values({ ...values, userId: wallId, id: item.id }).onConflictDoNothing().returning()
+      : await db.update(wallRecords).set(values).where(and(eq(wallRecords.userId, wallId), eq(wallRecords.id, item.id), eq(wallRecords.revision, revision), eq(wallRecords.kind, item.kind))).returning();
     if (!rows.length) return Response.json({ error: "另一端刚刚修改了这项内容，墙面已刷新。请核对后再操作。" }, { status: 409, headers });
     return Response.json({ item: serialize(rows[0]) }, { headers });
   } catch (e) {
