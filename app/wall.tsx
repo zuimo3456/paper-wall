@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { withoutServerFields, type SavedItem, type WallItem, type Paper, type Todo } from "../lib/wall-model";
-import { installPaperMotion, dragPaperMotion, releasePaper } from "../lib/paper-motion";
+import { installPaperMotion, dragPaperMotion, releasePaper, peelPaper } from "../lib/paper-motion";
 
 type View = { x: number; y: number; scale: number };
 type Editor = { mode: "todo" | "paper"; original?: SavedItem; at?: {x:number;y:number} };
@@ -246,14 +246,14 @@ export default function Wall() {
           </div>
           <form className="quick-add" onSubmit={addTodo}><Icon name="plus" size={17}/><input aria-label="添加近期事项" placeholder="添加一件小事…" maxLength={120} value={quickTodo} onChange={e=>setQuickTodo(e.target.value)} disabled={!loaded}/><button type="submit" aria-label="添加事项" disabled={!quickTodo.trim()||!loaded||quickBusy}><span>↵</span></button></form>
           <div className="paper-footer"><span>{todos.length?`${String(todos.length).padStart(2,"0")} 件待办`:"留一点空白，也很好"}</span><span className="handwritten">take your time</span></div>
-          <span className="paper-curl"/>
+          <button className="paper-curl" type="button" aria-label="轻掀近期事项纸角" title="轻掀纸角，也可以直接拖拽纸面" onClick={e=>peelPaper(e.currentTarget.closest<HTMLElement>(".paper")!)}/>
         </section>
         {papers.map((item,index)=>{const current=item.stages.findIndex(s=>!s.done),done=item.stages.filter(s=>s.done).length;return <section key={item.id} className={`paper flow-paper ${item.color} ${activePaper===item.id?"is-front":""}`} style={{left:item.x,top:item.y,"--tilt":`${item.tilt}deg`} as React.CSSProperties} aria-label={`流程纸：${item.title}`}>
           <span className="tape"/><div className="paper-drag-handle" onPointerDown={e=>startPaper(e,item)} onPointerMove={movePaper} onPointerUp={e=>void endPaper(e)} onPointerCancel={e=>void endPaper(e,true)}><span className="eyebrow">LITTLE STEPS, BIG THINGS</span><span className="grip-dots" aria-hidden="true">⠿</span></div>
           <div className="flow-title-row"><h2>{item.title}</h2><IconButton name="edit" label={`编辑流程：${item.title}`} onClick={()=>setEditor({mode:"paper",original:item})} disabled={pending.has(item.id)}/></div>
           {item.note?<p className="flow-note">{item.note}</p>:null}<div className="flow-progress"><span>{done===item.stages.length?"每一步，都算数。":"一点一点，往前走。"}</span><span>{done} / {item.stages.length}</span></div><div className="progress-track"><span style={{width:`${done/item.stages.length*100}%`}}/></div>
           <ol className="stage-list">{item.stages.map((stage,n)=><li className={`${stage.done?"stage-done":""} ${current===n?"stage-current":""}`} key={stage.id}><div className="stage-row"><button className={`check-circle ${stage.done?"checked":""}`} aria-label={`${stage.done?"撤销完成":"完成阶段"}：${stage.text}`} aria-pressed={stage.done} disabled={pending.has(item.id)} onClick={()=>void toggleStage(item,stage.id)}><Icon name="check" size={12}/></button><span>{stage.text}</span>{current===n?<span className="current-dot" title="当前阶段"/>:null}</div>{n<item.stages.length-1?<span className="stage-arrow"><Icon name="arrow" size={21}/></span>:null}</li>)}</ol>
-          <div className="flow-bottom"><span className="paper-number">PLAN {String(index+1).padStart(2,"0")}</span><button className="text-button" onClick={()=>void archive(item)} disabled={pending.has(item.id)}><Icon name="archive" size={14}/>{done===item.stages.length?"完成，归档":"收进归档"}</button></div><span className="paper-curl"/>
+          <div className="flow-bottom"><span className="paper-number">PLAN {String(index+1).padStart(2,"0")}</span><button className="text-button" onClick={()=>void archive(item)} disabled={pending.has(item.id)}><Icon name="archive" size={14}/>{done===item.stages.length?"完成，归档":"收进归档"}</button></div><button className="paper-curl" type="button" aria-label={`轻掀纸角：${item.title}`} title="轻掀纸角，也可以直接拖拽纸面" onClick={e=>peelPaper(e.currentTarget.closest<HTMLElement>(".paper")!)}/>
         </section>;})}
       </div>
       <div className="wall-caption" aria-hidden="true"><span>给计划一个位置，</span><span>给自己一点时间。</span></div>

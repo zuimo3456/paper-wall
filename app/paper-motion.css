@@ -1,36 +1,20 @@
-@property --paper-air{syntax:'<number>';inherits:true;initial-value:0}
-@property --paper-roll{syntax:'<angle>';inherits:false;initial-value:0deg}
-@property --paper-fold{syntax:'<angle>';inherits:false;initial-value:0deg}
-@property --paper-turn{syntax:'<angle>';inherits:false;initial-value:0deg}
-@property --paper-lift{syntax:'<length>';inherits:false;initial-value:0px}
-
-.paper{
-  transform-origin:50% 8px;
-  transform:perspective(950px) rotateZ(calc(var(--tilt,-1deg) + var(--paper-roll) + var(--paper-air) * .85deg)) rotateX(calc(var(--paper-fold) + var(--paper-air) * 4.2deg)) rotateY(calc(var(--paper-turn) + var(--paper-air) * .8deg)) translateY(var(--paper-lift));
-  animation:paper-appear .6s ease both,paper-air 7.8s ease-in-out .6s infinite;
-  will-change:transform;
-  backface-visibility:hidden;
-  transition:box-shadow .22s ease;
-  box-shadow:1px 3px 3px #3a3b2a13,5px calc(16px + var(--paper-air) * 4px) 24px -10px #3e483847,0 0 1px #5a5d3d25;
-}
-.paper:nth-child(3n+2){animation-delay:0s,-2.8s;animation-duration:.6s,8.9s}
-.paper:nth-child(3n){animation-delay:0s,-5.1s;animation-duration:.6s,7.1s}
-.paper:before{pointer-events:none;transform:rotate(calc(-2deg + var(--paper-air) * 1deg));box-shadow:0 9px 11px #39462b29}
-.paper:after{
-  content:"";position:absolute;inset:0;pointer-events:none;border-radius:inherit;
-  background:linear-gradient(105deg,#fff9df00 20%,#fffef658 45%,#8d865b17 76%,#fff6d700),linear-gradient(to top,#8e8a5e15 0%,transparent 17%);
-  opacity:calc(.28 + var(--paper-air) * .12);mix-blend-mode:multiply;
-}
-.paper .paper-curl{
-  width:54px;height:35px;opacity:.68;transform-origin:100% 100%;pointer-events:none;
-  transform:perspective(160px) rotateX(calc(12deg + var(--paper-air) * 7deg));
-  background:linear-gradient(148deg,transparent 52%,#d1cfba75 55%,#fffdf1c9 71%,transparent 74%);
-  filter:drop-shadow(-2px -2px 2px #75785b12);
-}
-.paper.paper-touched,.paper.paper-writing,.paper.is-dragging{animation-play-state:running,paused}
-@media(hover:hover) and (pointer:fine){.paper:hover{animation-play-state:running,paused}}
-.paper.paper-touched{box-shadow:2px 8px 8px #3a3b2a1a,9px 26px 30px -10px #3e48384d}
-.paper.is-dragging{box-shadow:5px 13px 11px #3a3b2a1c,12px 34px 35px -9px #3e48385c;cursor:grabbing}
-.paper.paper-writing{--paper-roll:0deg!important;--paper-fold:0deg!important;--paper-turn:0deg!important;--paper-lift:0px!important}
-@keyframes paper-air{0%,100%{--paper-air:-.75}50%{--paper-air:1}}
-@media(prefers-reduced-motion:reduce){.paper{animation:none!important;transform:rotate(var(--tilt,-1deg))!important;will-change:auto}.paper .paper-curl{transform:none}}
+.paper{transform:rotate(var(--tilt,-1deg));transform-origin:50% 8px;animation:paper-appear .5s ease both;transition:box-shadow .2s ease}
+.paper.is-dragging{box-shadow:3px 9px 13px #3e48382e;cursor:grabbing}
+.paper.is-flexing{background:transparent!important;box-shadow:none!important;perspective:none;transform-style:preserve-3d;overflow:visible}
+.paper.is-flexing:before,.paper.is-flexing:after{opacity:0!important}
+.paper.is-flexing>.tape{z-index:8;transform:translateZ(1px) rotate(-2deg)}
+.paper.is-flexing>:not(.paper-flex):not(.tape){opacity:0!important;pointer-events:none!important}
+.paper-flex{position:absolute;inset:0;pointer-events:none!important;transform-style:preserve-3d;user-select:none;z-index:2}
+.paper-flex-shadow{position:absolute;left:0;top:0;overflow:visible;transform:translateZ(-2px);pointer-events:none!important;will-change:filter}
+.paper-flex-strip{position:absolute;left:0;top:0;transform-origin:0 0;transform-style:preserve-3d;will-change:transform;pointer-events:none!important}
+.paper-flex-front,.paper-flex-back{position:absolute;inset:0;backface-visibility:visible;pointer-events:none!important}
+.paper-flex-front{overflow:hidden}
+.paper-flex-back{background-image:linear-gradient(95deg,#ffffff10,#89805b10);box-shadow:0 0 .5px #b4aa8a}
+.paper-flex-shade{position:absolute;inset:0;z-index:4;pointer-events:none!important}
+.paper.paper-flex-copy{position:absolute!important;left:0!important;margin:0!important;transform:none!important;animation:none!important;transition:none!important;box-shadow:none!important;perspective:none!important;min-height:0!important;border-radius:0!important;pointer-events:none!important}
+.paper-flex-copy:before,.paper-flex-copy:after{display:none!important}
+.paper-flex-copy .paper-curl,.paper-flex-copy .tape{display:none!important}
+.paper button.paper-curl{width:27px;height:27px;padding:0;pointer-events:auto;cursor:grab;opacity:.65;z-index:5;transition:opacity .2s}
+.paper button.paper-curl:hover{opacity:1}
+.paper button.paper-curl:focus-visible{outline-offset:1px}
+@media(prefers-reduced-motion:reduce){.paper{animation:none!important;transform:rotate(var(--tilt,-1deg))!important}.paper-flex{display:none!important}}
