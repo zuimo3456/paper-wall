@@ -1,6 +1,14 @@
-# vinext-starter
+# 纸上 · 我的事项墙
 
-A clean full-stack starter running on [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and Drizzle support.
+个人事项墙：近期待办、可拖动流程纸、阶段完成与归档、纸页局部弯折。手机和电脑共享一面墙，当前无账号与登录验证。
+
+- 开发：`npm ci` 后 `npm run dev`。
+- 独立部署：Node.js 24 下 `npm run build:portable`，生成 `outputs/portable-site`，进入该目录运行 `node server.mjs`。前端、API、SQLite 同一服务，数据目录需持久化。详见 [独立部署说明](docs/独立部署说明.md)。
+- GitHub Pages：手动运行 Pages 工作流；需要 `WALL_API_BASE` 仓库变量和允许 Pages 源站的 HTTPS 数据服务。Pages 本身不能保存与同步事项。公开仓库只存代码，不存数据库或私人事项备份。
+- 验证：`node scripts/verify-paper-cloth.mjs`、`node scripts/verify-wall-api.mjs`（仅本地服务）、`npx tsc --noEmit`。
+- [二维纸面验收](docs/二维纸面与迁移验收.md)。原托管版本用 Vinext + D1；独立版本用 Vite + Node.js + SQLite。
+
+以下为保留的开发底座说明；其中身份模拟能力未在本应用启用。
 
 ## Prerequisites
 

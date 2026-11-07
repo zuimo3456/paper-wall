@@ -3,6 +3,8 @@
 import { useState, useRef, useEffect, useCallback, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { withoutServerFields, type SavedItem, type WallItem, type Paper, type Todo } from "../lib/wall-model";
 import { installPaperMotion, dragPaperMotion, releasePaper, peelPaper } from "../lib/paper-motion";
+import { newId } from "../lib/new-id";
+const ITEMS_URL=(import.meta.env.VITE_WALL_API_BASE||"").replace(/\/$/,"")+"/api/items";
 
 type View = { x: number; y: number; scale: number };
 type Editor = { mode: "todo" | "paper"; original?: SavedItem; at?: {x:number;y:number} };
@@ -56,7 +58,7 @@ export default function Wall() {
     const seq=++readSeq.current;
     try {
       if(!quiet) setSync("loading");
-      const response=await fetch("/api/items",{cache:"no-store"});
+      const response=await fetch(ITEMS_URL,{cache:"no-store"});
       const data=await response.json() as {items:SavedItem[];error?:string};
       if(!response.ok)throw new Error(data.error || "无法读取墙面");
       if(seq!==readSeq.current || pendingRef.current.size || gesture.current)return;
@@ -82,7 +84,7 @@ export default function Wall() {
     let conflict=false;
     try {
       const previous=itemsRef.current.find(i=>i.id===item.id);
-      const response=await fetch("/api/items",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({item,revision:revision ?? previous?.revision ?? 0})});
+      const response=await fetch(ITEMS_URL,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({item,revision:revision ?? previous?.revision ?? 0})});
       const data=await response.json() as {item:SavedItem;error?:string};
       if(!response.ok){conflict=response.status===409;throw new Error(data.error || "保存失败，请重试");}
       setItems(current=>{const found=current.some(i=>i.id===item.id);return found?current.map(i=>i.id===item.id?data.item:i):[...current,data.item];});
@@ -108,7 +110,7 @@ export default function Wall() {
   async function addTodo(e:FormEvent) {
     e.preventDefault();const title=quickTodo.trim();if(!title || !loaded || quickBusyRef.current)return;
     quickBusyRef.current=true;setQuickBusy(true);
-    const item:Todo={kind:"todo",id:crypto.randomUUID(),title,note:"",createdAt:now(),archivedAt:null};
+    const item:Todo={kind:"todo",id:newId(),title,note:"",createdAt:now(),archivedAt:null};
     const result=await save(item,0);if(result)setQuickTodo("");
     quickBusyRef.current=false;setQuickBusy(false);
   }
@@ -211,7 +213,7 @@ export default function Wall() {
   async function submitEditor(data:{title:string;note:string;color:Paper["color"];stages:Paper["stages"]}) {
     if(!editor)return false;
     const original=editor.original;
-    const base={id:original?.id||crypto.randomUUID(),title:data.title,note:data.note,createdAt:original?.createdAt||now(),archivedAt:original?.archivedAt??null};
+    const base={id:original?.id||newId(),title:data.title,note:data.note,createdAt:original?.createdAt||now(),archivedAt:original?.archivedAt??null};
     const item:WallItem=editor.mode==="todo"?{...base,kind:"todo"}:{...base,kind:"paper",color:data.color,stages:data.stages,x:original?.kind==="paper"?original.x:editor.at!.x,y:original?.kind==="paper"?original.y:editor.at!.y,tilt:original?.kind==="paper"?original.tilt:(Math.random()-.5)*2.4};
     const result=await save(item,original?.revision??0);
     if(result){setEditor(null);if(!original&&result.kind==="paper"){
@@ -234,7 +236,7 @@ export default function Wall() {
   const archived=items.filter(i=>i.archivedAt).sort((a,b)=>(b.archivedAt||0)-(a.archivedAt||0));
   const statusText=sync==="loading"?"正在打开墙面":sync==="saving"?"正在保存":sync==="error"?"连接中断":"已同步";
   return <div className="app-shell">
-    <header className="topbar"><a className="brand" href="/" aria-label="纸上首页"><span className="brand-mark"><span/></span><span>纸上<span className="brand-dot">。</span></span></a><span className="brand-divider"/><span className="room-label">我的事项墙</span><div className="topbar-right"><span className={`sync-status ${sync}`} aria-live="polite"><span/>{statusText}</span><button className="quiet-button archive-button" onClick={()=>setArchiveOpen(true)}><Icon name="archive"/><span>归档盒</span>{archived.length>0?<b>{archived.length}</b>:null}</button><button className="primary add-paper" onClick={newPaper} disabled={!loaded}><Icon name="plus"/><span>贴一张纸</span></button></div></header>
+    <header className="topbar"><a className="brand" href={import.meta.env.BASE_URL||"/"} aria-label="纸上首页"><span className="brand-mark"><span/></span><span>纸上<span className="brand-dot">。</span></span></a><span className="brand-divider"/><span className="room-label">我的事项墙</span><div className="topbar-right"><span className={`sync-status ${sync}`} aria-live="polite"><span/>{statusText}</span><button className="quiet-button archive-button" onClick={()=>setArchiveOpen(true)}><Icon name="archive"/><span>归档盒</span>{archived.length>0?<b>{archived.length}</b>:null}</button><button className="primary add-paper" onClick={newPaper} disabled={!loaded}><Icon name="plus"/><span>贴一张纸</span></button></div></header>
     <main ref={viewport} className={`wall-viewport ${dragging?"is-panning":""}`} aria-label="事项墙，可在空白处拖动" onPointerDownCapture={touchStart} onPointerMoveCapture={touchMove} onPointerUpCapture={touchEnd} onPointerCancelCapture={touchEnd} onClickCapture={e=>{if(Date.now()<suppressClickUntil.current){e.preventDefault();e.stopPropagation();}}} onPointerDown={startPan} onPointerMove={movePan} onPointerUp={endPan} onPointerCancel={endPan}>
       <div className="wall-grain"/>
       <div ref={plane} className="wall-plane" style={{transform:`translate(${view.x}px,${view.y}px) scale(${view.scale})`}}>
@@ -289,13 +291,13 @@ function EditDialog({editor,onClose,onSubmit,onArchive}:{editor:Editor;onClose:(
   const old=editor.original;
   const [title,setTitle]=useState(old?.title||"");const [note,setNote]=useState(old?.note||"");
   const [color,setColor]=useState<Paper["color"]>(old?.kind==="paper"?old.color:"linen");
-  const [stages,setStages]=useState<Paper["stages"]>(old?.kind==="paper"?old.stages:[{id:crypto.randomUUID(),text:"",done:false},{id:crypto.randomUUID(),text:"",done:false},{id:crypto.randomUUID(),text:"",done:false}]);
+  const [stages,setStages]=useState<Paper["stages"]>(old?.kind==="paper"?old.stages:[{id:newId(),text:"",done:false},{id:newId(),text:"",done:false},{id:newId(),text:"",done:false}]);
   const [busy,setBusy]=useState(false);const [validation,setValidation]=useState("");
   const busyRef=useRef(false);
   const close=useCallback(()=>{if(!busyRef.current)onClose();},[onClose]);
   async function submit(e:FormEvent){e.preventDefault();if(busyRef.current)return;const cleanStages=stages.filter(s=>s.text.trim()).map(s=>({...s,text:s.text.trim()}));if(!title.trim()){setValidation("先给这件事写个名字吧。");return;}if(editor.mode==="paper"&&!cleanStages.length){setValidation("至少写下一个阶段。");return;}setValidation("");busyRef.current=true;setBusy(true);try{const ok=await onSubmit({title:title.trim(),note:note.trim(),color,stages:cleanStages});if(!ok)setValidation("这次还没有保存成功。你的文字保留在这里，请核对墙面后重试。");}finally{busyRef.current=false;setBusy(false);}}
   return <Modal onClose={close} label={old?"编辑事项":"贴下一个新计划"} className="edit-modal"><div className="modal-header"><div><span className="eyebrow">A PLACE FOR YOUR NEXT STEP</span><h2>{editor.mode==="todo"?"编辑这件小事":old?"整理这张纸":"贴下一个新计划"}</h2></div><IconButton label="关闭编辑" name="close" onClick={close} disabled={busy}/></div><form onSubmit={submit}><div className="editor-body"><label className="field-label" htmlFor="item-title">{editor.mode==="paper"?"这件事叫什么？":"事项名称"}</label><input className="title-input" id="item-title" placeholder={editor.mode==="paper"?"例如，准备一次旅行":"写下想做的事"} value={title} onChange={e=>setTitle(e.target.value)} maxLength={120} required disabled={busy}/><label className="field-label" htmlFor="item-note">留一句话 <span>可选</span></label><textarea id="item-note" className="note-input" placeholder="给这件事加一点说明…" value={note} onChange={e=>setNote(e.target.value)} maxLength={2000} rows={2} disabled={busy}/>
-      {editor.mode==="paper"?<><div className="field-label stage-label">把它分成几步 <span>从上往下，一步一步来</span></div><div className="stage-editor">{stages.map((s,i)=><div className="stage-edit-wrap" key={s.id}><div className="stage-edit-row"><span className={`step-index ${s.done?"is-complete":""}`}>{s.done?<Icon name="check" size={12}/>:String(i+1).padStart(2,"0")}</span><input aria-label={`第${i+1}阶段`} placeholder={i===0?"从哪一步开始？":"接下来做什么？"} value={s.text} onChange={e=>setStages(stages.map(t=>t.id===s.id?{...t,text:e.target.value}:t))} maxLength={300} disabled={busy}/><IconButton name="close" label={`移除第${i+1}阶段`} onClick={()=>setStages(stages.filter(t=>t.id!==s.id))} disabled={busy||stages.length===1}/></div>{i<stages.length-1?<span className="editor-arrow">↓</span>:null}</div>)}</div><button type="button" className="text-button add-stage" onClick={()=>setStages([...stages,{id:crypto.randomUUID(),text:"",done:false}])} disabled={busy||stages.length>=30}><Icon name="plus" size={16}/>再加一步</button><div className="paper-color-row"><span className="field-label">纸张颜色</span><div className="color-options">{paperColors.map(c=><button type="button" className={`color-swatch ${c.id} ${color===c.id?"selected":""}`} key={c.id} title={c.label} aria-label={`${c.label}纸张`} aria-pressed={color===c.id} disabled={busy} onClick={()=>setColor(c.id)}>{color===c.id?<Icon name="check" size={14}/>:null}</button>)}</div></div></>:null}
+      {editor.mode==="paper"?<><div className="field-label stage-label">把它分成几步 <span>从上往下，一步一步来</span></div><div className="stage-editor">{stages.map((s,i)=><div className="stage-edit-wrap" key={s.id}><div className="stage-edit-row"><span className={`step-index ${s.done?"is-complete":""}`}>{s.done?<Icon name="check" size={12}/>:String(i+1).padStart(2,"0")}</span><input aria-label={`第${i+1}阶段`} placeholder={i===0?"从哪一步开始？":"接下来做什么？"} value={s.text} onChange={e=>setStages(stages.map(t=>t.id===s.id?{...t,text:e.target.value}:t))} maxLength={300} disabled={busy}/><IconButton name="close" label={`移除第${i+1}阶段`} onClick={()=>setStages(stages.filter(t=>t.id!==s.id))} disabled={busy||stages.length===1}/></div>{i<stages.length-1?<span className="editor-arrow">↓</span>:null}</div>)}</div><button type="button" className="text-button add-stage" onClick={()=>setStages([...stages,{id:newId(),text:"",done:false}])} disabled={busy||stages.length>=30}><Icon name="plus" size={16}/>再加一步</button><div className="paper-color-row"><span className="field-label">纸张颜色</span><div className="color-options">{paperColors.map(c=><button type="button" className={`color-swatch ${c.id} ${color===c.id?"selected":""}`} key={c.id} title={c.label} aria-label={`${c.label}纸张`} aria-pressed={color===c.id} disabled={busy} onClick={()=>setColor(c.id)}>{color===c.id?<Icon name="check" size={14}/>:null}</button>)}</div></div></>:null}
       {validation?<p className="form-error" role="alert">{validation}</p>:null}</div><div className="modal-footer">{onArchive?<button className="text-button archive-edit" type="button" onClick={onArchive} disabled={busy}><Icon name="archive" size={15}/>归档</button>:<span className="footer-note">计划可以随时修改。</span>}<div className="footer-buttons"><button type="button" className="quiet-button" onClick={close} disabled={busy}>先放一放</button><button className="primary" type="submit" disabled={busy}>{busy?"正在保存…":editor.mode==="todo"?"保存修改":old?"保存修改":"贴到墙上"}<Icon name={old?"check":"plus"} size={16}/></button></div></div></form></Modal>;
 }
 function ArchiveDialog({items,pending,onClose,onRestore,onExport}:{items:SavedItem[];pending:Set<string>;onClose:()=>void;onRestore:(item:SavedItem)=>Promise<void>;onExport:()=>void}) {

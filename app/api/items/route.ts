@@ -3,10 +3,21 @@ import { getDb } from "../../../db";
 import { wallRecords } from "../../../db/schema";
 import { and, eq, desc } from "drizzle-orm";
 import { saveSchema } from "../../../lib/wall-model";
+import { env } from "cloudflare:workers";
 export const dynamic = "force-dynamic";
-const headers = { "Cache-Control": "private, no-store" };
+const baseHeaders = { "Cache-Control": "private, no-store" };
+function cors(request:Request){
+  const origin=request.headers.get("origin");
+  const allowed=new Set((env.WALL_ALLOWED_ORIGINS||"").split(",").map(value=>value.trim()).filter(Boolean));
+  const permitted=!origin||origin===new URL(request.url).origin||allowed.has(origin);
+  const headers:Record<string,string>={...baseHeaders};
+  if(origin&&allowed.has(origin))Object.assign(headers,{"Access-Control-Allow-Origin":origin,"Access-Control-Allow-Methods":"GET, PUT, OPTIONS","Access-Control-Allow-Headers":"Content-Type","Vary":"Origin"});
+  return {permitted,headers};
+}
+export function OPTIONS(request:Request){const {permitted,headers}=cors(request);return permitted?new Response(null,{status:204,headers}):Response.json({error:"请求来源不匹配"},{status:403,headers});}
 function serialize(row: typeof wallRecords.$inferSelect) { return { ...JSON.parse(row.payload), revision: row.revision, updatedAt: row.updatedAt }; }
-export async function GET() {
+export async function GET(request:Request) {
+  const {headers}=cors(request);
   try {
     const rows = await getDb().select().from(wallRecords).where(eq(wallRecords.userId, singleWallId())).orderBy(desc(wallRecords.updatedAt));
     return Response.json({ items: rows.map(serialize) }, { headers });
@@ -16,8 +27,8 @@ export async function GET() {
   }
 }
 export async function PUT(request: Request) {
-  const origin = request.headers.get("origin");
-  if (origin && origin !== new URL(request.url).origin) return Response.json({ error: "请求来源不匹配" }, { status: 403, headers });
+  const {permitted,headers}=cors(request);
+  if (!permitted) return Response.json({ error: "请求来源不匹配" }, { status: 403, headers });
   let parsed;
   try {
     const raw = await request.text();

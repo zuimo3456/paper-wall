@@ -1,20 +1,17 @@
 .paper{transform:rotate(var(--tilt,-1deg));transform-origin:50% 8px;animation:paper-appear .5s ease both;transition:box-shadow .2s ease}
 .paper.is-dragging{box-shadow:3px 9px 13px #3e48382e;cursor:grabbing}
-.paper.is-flexing{background:transparent!important;box-shadow:none!important;perspective:none;transform-style:preserve-3d;overflow:visible}
+.paper.is-flexing{background:transparent!important;box-shadow:none!important;overflow:visible}
 .paper.is-flexing:before,.paper.is-flexing:after{opacity:0!important}
-.paper.is-flexing>.tape{z-index:8;transform:translateZ(1px) rotate(-2deg)}
-.paper.is-flexing>:not(.paper-flex):not(.tape){opacity:0!important;pointer-events:none!important}
-.paper-flex{position:absolute;inset:0;pointer-events:none!important;transform-style:preserve-3d;user-select:none;z-index:2}
-.paper-flex-shadow{position:absolute;left:0;top:0;overflow:visible;transform:translateZ(-2px);pointer-events:none!important;will-change:filter}
-.paper-flex-strip{position:absolute;left:0;top:0;transform-origin:0 0;transform-style:preserve-3d;will-change:transform;pointer-events:none!important}
-.paper-flex-front,.paper-flex-back{position:absolute;inset:0;backface-visibility:visible;pointer-events:none!important}
-.paper-flex-front{overflow:hidden}
-.paper-flex-back{background-image:linear-gradient(95deg,#ffffff10,#89805b10);box-shadow:0 0 .5px #b4aa8a}
-.paper-flex-shade{position:absolute;inset:0;z-index:4;pointer-events:none!important}
-.paper.paper-flex-copy{position:absolute!important;left:0!important;margin:0!important;transform:none!important;animation:none!important;transition:none!important;box-shadow:none!important;perspective:none!important;min-height:0!important;border-radius:0!important;pointer-events:none!important}
-.paper-flex-copy:before,.paper-flex-copy:after{display:none!important}
-.paper-flex-copy .paper-curl,.paper-flex-copy .tape{display:none!important}
-.paper button.paper-curl{width:27px;height:27px;padding:0;pointer-events:auto;cursor:grab;opacity:.65;z-index:5;transition:opacity .2s}
+/* The native tape is hidden along with the sheet. During motion, both are
+   rendered into one depth-tested canvas: no top-level tape stacking context. */
+.paper.is-flexing>:not(.paper-flex){opacity:0!important;pointer-events:none!important}
+.paper-flex{position:absolute;inset:0;pointer-events:none!important;user-select:none;z-index:2}
+.paper-flex-shadow{position:absolute;left:0;top:0;overflow:visible;pointer-events:none!important;opacity:.19;z-index:0}
+.paper-cloth-canvas{display:block;z-index:1;pointer-events:none!important}
+.paper button.paper-curl{width:27px;height:27px;padding:0;pointer-events:auto;cursor:grab;opacity:.65;z-index:3;transition:opacity .2s}
 .paper button.paper-curl:hover{opacity:1}
 .paper button.paper-curl:focus-visible{outline-offset:1px}
+.paper.paper-texture-source{transform:none!important;animation:none!important;transition:none!important;box-shadow:none!important;opacity:1!important;min-height:0!important;border-radius:0!important}
+.paper-texture-source:before,.paper-texture-source:after{display:none!important}
+.paper-texture-staging{z-index:-10000;pointer-events:none;contain:layout style}
 @media(prefers-reduced-motion:reduce){.paper{animation:none!important;transform:rotate(var(--tilt,-1deg))!important}.paper-flex{display:none!important}}

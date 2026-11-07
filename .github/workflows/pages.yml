@@ -1,0 +1,42 @@
+name: Publish paper wall frontend
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Require a reachable HTTPS data server
+        env:
+          API_BASE: ${{ vars.WALL_API_BASE }}
+        run: |
+          node -e 'const u=new URL(process.env.API_BASE); if(u.protocol!=="https:" || u.pathname!=="/" || u.search || u.hash || u.username || u.password) throw new Error("WALL_API_BASE must be the HTTPS origin of your deployed backend")'
+      - run: npm ci
+      - uses: actions/configure-pages@v5
+      - name: Build project or account Pages
+        env:
+          VITE_WALL_API_BASE: ${{ vars.WALL_API_BASE }}
+          REPO_NAME: ${{ github.event.repository.name }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          if [ "${REPO_NAME,,}" = "${OWNER,,}.github.io" ]; then export VITE_BASE_PATH=/; else export VITE_BASE_PATH="/$REPO_NAME/"; fi
+          node node_modules/vite/bin/vite.js build --config vite.portable-web.config.ts
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: outputs/portable-site/public
+      - uses: actions/deploy-pages@v5
+        id: deployment

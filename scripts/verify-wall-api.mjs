@@ -10,7 +10,7 @@ async function request(method, body, extra = {}) {
 const makeTodo = title => ({ id: randomUUID(), kind: "todo", title, note: "", createdAt: Date.now(), archivedAt: null });
 const createdIds = new Set();
 const todo = makeTodo("API验收：并发与持久化");
-await check("homepage opens without login or redirect", async () => { const r = await fetch(origin, { redirect: "manual" }); assert.equal(r.status, 200); const html = await r.text(); assert.ok(html.includes("近期事项")); assert.ok(!html.includes("登录，打开我的墙")); });
+await check("homepage opens without login or redirect", async () => { const r = await fetch(origin, { redirect: "manual" }); assert.equal(r.status, 200); const html = await r.text(); assert.ok(html.includes("近期事项") || (html.includes('id="root"') && html.includes("纸上"))); assert.ok(!html.includes("登录，打开我的墙")); });
 await check("anonymous read allowed without cookie", async () => { const r = await request("GET"); assert.equal(r.status, 200); assert.equal(r.headers.get("set-cookie"), null); });
 await check("browser identity headers do not select another wall", async () => { const first = await (await request("GET")).json(); const second = await (await request("GET", null, { "oai-authenticated-user-id": "different-browser", "oai-authenticated-user-email": "other@example.invalid", Cookie: "unrelated=value" })).json(); assert.deepEqual(first.items, second.items); });
 await check("create starts at revision one", async () => { const r = await request("PUT", { item: todo, revision: 0 }); assert.equal(r.status, 200); const d = await r.json(); assert.equal(d.item.revision, 1); createdIds.add(todo.id); });
