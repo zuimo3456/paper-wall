@@ -19,3 +19,21 @@ for(const dt of [1/120,1/60,1/30]){
   }
 }
 console.log(`${passed} cloth cases passed`);
+for(const dt of [1/120,1/60,1/30])for(const height of [378,860]){
+  const cloth=new PaperCloth(326,height,16,Math.min(36,Math.ceil(height/19)));
+  let seed=1057;const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
+  for(let grab=0;grab<24;grab++){
+    const u=.03+random()*.94,v=.07+random()*.91;
+    for(let frame=0;frame<8;frame++){
+      cloth.hold({u,v,x:(random()-.5)*1600,y:(random()-.35)*1800,z:random()*500});
+      cloth.step(dt*.5);cloth.step(dt*.5);
+      assert.ok(cloth.nodes.every(p=>[p.x,p.y,p.z].every(Number.isFinite)));
+    }
+    if(grab%3===0){cloth.release();cloth.step(dt);}
+  }
+  cloth.release();for(let t=0;t<2.1;t+=dt){cloth.step(dt*.5);cloth.step(dt*.5);}
+  assert.ok(cloth.settled,"violent shaking and rapid regrabs must recover");
+  assert.ok(cloth.nodes.every(p=>Math.hypot(p.x-p.rx,p.y-p.ry,p.z)<.01),"even tangled starting shapes return exactly to the original sheet");
+  console.log(`PASS adversarial shake/regrab and bounded recovery: ${Math.round(1/dt)}Hz, height ${height}`);passed++;
+}
+console.log(`${passed} total cloth cases passed`);

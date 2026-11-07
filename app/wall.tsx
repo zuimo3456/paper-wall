@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { withoutServerFields, type SavedItem, type WallItem, type Paper, type Todo } from "../lib/wall-model";
+import { withoutServerFields, RECENT_LAYOUT_ID, type SavedItem, type SavedContentItem, type WallLayout, type WallItem, type Paper, type Todo } from "../lib/wall-model";
 import { installPaperMotion, dragPaperMotion, releasePaper, peelPaper } from "../lib/paper-motion";
 import { newId } from "../lib/new-id";
 const ITEMS_URL=(import.meta.env.VITE_WALL_API_BASE||"").replace(/\/$/,"")+"/api/items";
 
 type View = { x: number; y: number; scale: number };
-type Editor = { mode: "todo" | "paper"; original?: SavedItem; at?: {x:number;y:number} };
+type Editor = { mode: "todo" | "paper"; original?: SavedContentItem; at?: {x:number;y:number} };
 type PaperItem = SavedItem & Paper;
 type TodoItem = SavedItem & Todo;
 type IconName = "plus" | "archive" | "close" | "minus" | "home" | "edit" | "undo" | "check" | "refresh" | "download" | "arrow";
@@ -51,6 +51,7 @@ export default function Wall() {
   const [dragging,setDragging]=useState(false);
   const [activePaper,setActivePaper]=useState<string|null>(null);
   const readSeq=useRef(0);
+  const initialView=useRef(false);
   useEffect(()=>{if(plane.current)return installPaperMotion(plane.current);},[]);
 
   const refresh=useCallback(async(quiet=false)=>{
@@ -76,6 +77,12 @@ export default function Wall() {
     return ()=>{clearInterval(timer);window.removeEventListener("focus",onVisible);window.removeEventListener("online",onVisible);document.removeEventListener("visibilitychange",onVisible);};
   },[refresh]);
   useEffect(()=>{if(!notice)return;const timer=setTimeout(()=>setNotice(null),6500);return()=>clearTimeout(timer);},[notice]);
+  useEffect(()=>{if(loaded&&!initialView.current){initialView.current=true;resetView();}},[loaded]);
+  useEffect(()=>{
+    const cancel=()=>{const g=gesture.current;if(g){gesture.current=null;g.element.classList.remove("is-dragging");g.element.style.left=`${g.origX}px`;g.element.style.top=`${g.origY}px`;releasePaper(g.element);}points.current.clear();pan.current=null;touchCamera.current=false;setDragging(false);};
+    const hidden=()=>{if(document.hidden)cancel();};window.addEventListener("blur",cancel);document.addEventListener("visibilitychange",hidden);
+    return()=>{window.removeEventListener("blur",cancel);document.removeEventListener("visibilitychange",hidden);};
+  },[]);
 
   async function save(item:WallItem, revision?:number):Promise<SavedItem|null> {
     if(pendingRef.current.has(item.id))return null;
@@ -94,16 +101,17 @@ export default function Wall() {
     } finally {
       pendingRef.current.delete(item.id);setPending(new Set(pendingRef.current));
       if(pendingRef.current.size)setSync("saving");
-      if(conflict){const message="另一端刚刚修改了这项内容，已刷新墙面。请核对后重试。";const fresh=await refresh(true);const current=fresh?.find(i=>i.id===item.id);if(current)setEditor(e=>e?.original?.id===item.id?{...e,original:current}:e);setNotice({text:message});}
+      if(conflict){const message="另一端刚刚修改了这项内容，已刷新墙面。请核对后重试。";const fresh=await refresh(true);const current=fresh?.find(i=>i.id===item.id);if(current&&current.kind!=="layout")setEditor(e=>e?.original?.id===item.id?{...e,original:current}:e);setNotice({text:message});}
     }
   }
-  async function archive(item:SavedItem) {
+  async function archive(item:SavedContentItem) {
     const saved=await save({...withoutServerFields(item),archivedAt:now()},item.revision);
-    if(saved)setNotice({text:item.kind==="todo"?"完成了一件事，已收进归档。":"这张纸已收进归档。",undo:()=>{void restore(saved);}});
+    if(saved&&saved.kind!=="layout")setNotice({text:item.kind==="todo"?"完成了一件事，已收进归档。":"这张纸已收进归档。",undo:()=>{void restore(saved);}});
     return !!saved;
   }
-  async function restore(item:SavedItem) {
+  async function restore(item:SavedContentItem) {
     const current=itemsRef.current.find(i=>i.id===item.id)||item;
+    if(current.kind==="layout")return;
     const saved=await save({...withoutServerFields(current),archivedAt:null},current.revision);
     if(saved)setNotice({text:"已放回墙上。"});
   }
@@ -118,7 +126,8 @@ export default function Wall() {
   function resetView() {
     const width=viewport.current?.clientWidth||window.innerWidth;
     const scale=width<650?Math.min(.93,(width-40)/326):1;
-    setView({x:width<650?20-56*scale:0,y:width<650?24-62*scale:0,scale});
+    const recent=itemsRef.current.find(i=>i.kind==="layout"),x=recent?.kind==="layout"?recent.x:56,y=recent?.kind==="layout"?recent.y:62;
+    setView({x:(width<650?20:56)-x*scale,y:(width<650?24:62)-y*scale,scale});
   }
   function zoom(factor:number,anchor?:{x:number;y:number}) {
     const rect=viewport.current?.getBoundingClientRect();if(!rect)return;
@@ -128,8 +137,9 @@ export default function Wall() {
   function fitAll() {
     const rect=viewport.current?.getBoundingClientRect();if(!rect)return;
     const papers=itemsRef.current.filter((i):i is PaperItem=>i.kind==="paper"&&!i.archivedAt);
-    const left=Math.min(56,...papers.map(p=>p.x)),top=Math.min(62,...papers.map(p=>p.y));
-    const right=Math.max(382,...papers.map(p=>p.x+304)),bottom=Math.max(450,...papers.map(p=>p.y+240+p.stages.length*85));
+    const recent=itemsRef.current.find(i=>i.kind==="layout"),rx=recent?.kind==="layout"?recent.x:56,ry=recent?.kind==="layout"?recent.y:62;
+    const left=Math.min(rx,...papers.map(p=>p.x)),top=Math.min(ry,...papers.map(p=>p.y));
+    const right=Math.max(rx+326,...papers.map(p=>p.x+304)),bottom=Math.max(ry+378,...papers.map(p=>p.y+240+p.stages.length*85));
     const scale=clamp(Math.min((rect.width-60)/(right-left),(rect.height-80)/(bottom-top),1),.3,1.8);
     setView({scale,x:(rect.width-(right-left)*scale)/2-left*scale,y:35-top*scale});
   }
@@ -179,11 +189,12 @@ export default function Wall() {
     if(touchCamera.current){e.preventDefault();e.stopPropagation();endPan(e);suppressClickUntil.current=Date.now()+350;if(!points.current.size)touchCamera.current=false;}
     else if(!pan.current)points.current.delete(e.pointerId);
   }
-  function startPaper(e:ReactPointerEvent<HTMLElement>,item:PaperItem) {
-    if(e.button!==0 || pendingRef.current.has(item.id) || gesture.current)return;
-    e.stopPropagation();e.currentTarget.setPointerCapture(e.pointerId);
+  function startPaper(e:ReactPointerEvent<HTMLElement>,item?:PaperItem) {
+    const layout=itemsRef.current.find(i=>i.kind==="layout"),position=item||(layout?.kind==="layout"?layout:{id:RECENT_LAYOUT_ID,x:56,y:62});
+    if(e.button!==0 || !loaded || pendingRef.current.has(position.id) || gesture.current)return;
+    e.preventDefault();e.stopPropagation();e.currentTarget.setPointerCapture(e.pointerId);
     const el=e.currentTarget.closest(".paper") as HTMLElement;
-    gesture.current={id:item.id,startX:e.clientX,startY:e.clientY,origX:item.x,origY:item.y,element:el,moved:false,dx:0,dy:0,lastX:0,lastY:0,lastTime:performance.now()};setActivePaper(item.id);
+    gesture.current={id:position.id,startX:e.clientX,startY:e.clientY,origX:position.x,origY:position.y,element:el,moved:false,dx:0,dy:0,lastX:0,lastY:0,lastTime:performance.now()};setActivePaper(position.id);
   }
   function movePaper(e:ReactPointerEvent<HTMLElement>) {
     const g=gesture.current;if(!g)return;e.stopPropagation();
@@ -198,10 +209,15 @@ export default function Wall() {
   }
   async function endPaper(e:ReactPointerEvent<HTMLElement>,cancel=false) {
     const g=gesture.current;if(!g)return;e.stopPropagation();gesture.current=null;g.element.classList.remove("is-dragging");releasePaper(g.element);
-    const item=itemsRef.current.find(i=>i.id===g.id) as PaperItem|undefined;
-    if(!item)return;
-    if(g.moved&&!cancel){const result=await save({...withoutServerFields(item),x:g.origX+g.dx,y:g.origY+g.dy} as Paper,item.revision);if(!result){g.element.style.left=`${item.x}px`;g.element.style.top=`${item.y}px`;}}
-    else {g.element.style.left=`${item.x}px`;g.element.style.top=`${item.y}px`;}
+    const item=itemsRef.current.find(i=>i.id===g.id);
+    if(g.moved&&!cancel){
+      const payload:Paper|WallLayout=g.id===RECENT_LAYOUT_ID
+        ?{id:RECENT_LAYOUT_ID,kind:"layout",title:"近期事项位置",createdAt:item?.createdAt??now(),archivedAt:null,x:g.origX+g.dx,y:g.origY+g.dy}
+        :{...withoutServerFields(item!),x:g.origX+g.dx,y:g.origY+g.dy} as Paper;
+      const result=await save(payload,item?.revision??0);if(result)return;
+    }
+    const restorePosition=()=>{if(gesture.current?.element===g.element)return;const latest=itemsRef.current.find(i=>i.id===g.id);const position=latest&&(latest.kind==="paper"||latest.kind==="layout")?latest:{x:g.origX,y:g.origY};g.element.style.left=`${position.x}px`;g.element.style.top=`${position.y}px`;};
+    restorePosition();requestAnimationFrame(restorePosition);
   }
   function newPaper(){
     const rect=viewport.current!.getBoundingClientRect(),v=viewRef.current;
@@ -233,15 +249,16 @@ export default function Wall() {
 
   const todos=items.filter((i):i is TodoItem=>i.kind==="todo"&&!i.archivedAt).sort((a,b)=>a.createdAt-b.createdAt);
   const papers=items.filter((i):i is PaperItem=>i.kind==="paper"&&!i.archivedAt).sort((a,b)=>a.createdAt-b.createdAt);
-  const archived=items.filter(i=>i.archivedAt).sort((a,b)=>(b.archivedAt||0)-(a.archivedAt||0));
+  const archived=items.filter((i):i is SavedContentItem=>i.kind!=="layout"&&i.archivedAt!==null).sort((a,b)=>(b.archivedAt||0)-(a.archivedAt||0));
+  const recent=items.find(i=>i.kind==="layout");
   const statusText=sync==="loading"?"正在打开墙面":sync==="saving"?"正在保存":sync==="error"?"连接中断":"已同步";
   return <div className="app-shell">
     <header className="topbar"><a className="brand" href={import.meta.env.BASE_URL||"/"} aria-label="纸上首页"><span className="brand-mark"><span/></span><span>纸上<span className="brand-dot">。</span></span></a><span className="brand-divider"/><span className="room-label">我的事项墙</span><div className="topbar-right"><span className={`sync-status ${sync}`} aria-live="polite"><span/>{statusText}</span><button className="quiet-button archive-button" onClick={()=>setArchiveOpen(true)}><Icon name="archive"/><span>归档盒</span>{archived.length>0?<b>{archived.length}</b>:null}</button><button className="primary add-paper" onClick={newPaper} disabled={!loaded}><Icon name="plus"/><span>贴一张纸</span></button></div></header>
     <main ref={viewport} className={`wall-viewport ${dragging?"is-panning":""}`} aria-label="事项墙，可在空白处拖动" onPointerDownCapture={touchStart} onPointerMoveCapture={touchMove} onPointerUpCapture={touchEnd} onPointerCancelCapture={touchEnd} onClickCapture={e=>{if(Date.now()<suppressClickUntil.current){e.preventDefault();e.stopPropagation();}}} onPointerDown={startPan} onPointerMove={movePan} onPointerUp={endPan} onPointerCancel={endPan}>
       <div className="wall-grain"/>
       <div ref={plane} className="wall-plane" style={{transform:`translate(${view.x}px,${view.y}px) scale(${view.scale})`}}>
-        <section className="paper recent-paper" style={{left:56,top:62}} aria-label="近期事项">
-          <span className="tape tape-recent"/><div className="recent-heading"><span className="eyebrow">ONE THING AT A TIME</span><span className="paper-number">01 /</span></div>
+        <section draggable={false} className={`paper recent-paper ${activePaper===RECENT_LAYOUT_ID?"is-front":""}`} style={{left:recent?.kind==="layout"?recent.x:56,top:recent?.kind==="layout"?recent.y:62}} aria-label="近期事项">
+          <span className="tape tape-recent"/><div className="paper-drag-handle recent-heading" title="拖动上沿移动近期事项" aria-label="移动近期事项" onPointerDown={e=>startPaper(e)} onPointerMove={movePaper} onPointerUp={e=>void endPaper(e)} onPointerCancel={e=>void endPaper(e,true)} onLostPointerCapture={e=>void endPaper(e,true)}><span className="eyebrow">ONE THING AT A TIME</span><span className="paper-number">01 /</span><span className="grip-dots" aria-hidden="true">⠿</span></div>
           <h1>近期事项<span className="tiny-star">✳</span></h1><p className="paper-subtitle">记下来，一件一件慢慢来。</p><div className="pencil-line"/>
           <div className="todo-scroll">
             {!loaded?<div className="empty-todos"><span className="empty-circle"/><p>{sync==="error"?"墙面还没打开":"正在取下防尘布…"}</p>{sync==="error"?<button className="text-button" onClick={()=>void refresh()}>重新连接</button>:null}</div>:todos.length===0?<div className="empty-todos"><span className="empty-circle"/><p>暂时没有挂心的事</p><small>把接下来想做的，写在下面。</small></div>:todos.map(item=><div className={`todo-row ${pending.has(item.id)?"is-busy":""}`} key={item.id}><button className="check-circle" aria-label={`完成并归档：${item.title}`} disabled={pending.has(item.id)} onClick={()=>void archive(item)}><Icon name="check" size={12}/></button><button className="todo-content" onClick={()=>setEditor({mode:"todo",original:item})} disabled={pending.has(item.id)}><span>{item.title}</span>{item.note?<small>{item.note}</small>:null}</button><button className="row-edit" aria-label={`编辑：${item.title}`} onClick={()=>setEditor({mode:"todo",original:item})}><Icon name="edit" size={14}/></button></div>)}
@@ -251,7 +268,7 @@ export default function Wall() {
           <button className="paper-curl" type="button" aria-label="轻掀近期事项纸角" title="轻掀纸角，也可以直接拖拽纸面" onClick={e=>peelPaper(e.currentTarget.closest<HTMLElement>(".paper")!)}/>
         </section>
         {papers.map((item,index)=>{const current=item.stages.findIndex(s=>!s.done),done=item.stages.filter(s=>s.done).length;return <section key={item.id} className={`paper flow-paper ${item.color} ${activePaper===item.id?"is-front":""}`} style={{left:item.x,top:item.y,"--tilt":`${item.tilt}deg`} as React.CSSProperties} aria-label={`流程纸：${item.title}`}>
-          <span className="tape"/><div className="paper-drag-handle" onPointerDown={e=>startPaper(e,item)} onPointerMove={movePaper} onPointerUp={e=>void endPaper(e)} onPointerCancel={e=>void endPaper(e,true)}><span className="eyebrow">LITTLE STEPS, BIG THINGS</span><span className="grip-dots" aria-hidden="true">⠿</span></div>
+          <span className="tape"/><div className="paper-drag-handle" title="拖动上沿移动这张纸" onPointerDown={e=>startPaper(e,item)} onPointerMove={movePaper} onPointerUp={e=>void endPaper(e)} onPointerCancel={e=>void endPaper(e,true)} onLostPointerCapture={e=>void endPaper(e,true)}><span className="eyebrow">LITTLE STEPS, BIG THINGS</span><span className="grip-dots" aria-hidden="true">⠿</span></div>
           <div className="flow-title-row"><h2>{item.title}</h2><IconButton name="edit" label={`编辑流程：${item.title}`} onClick={()=>setEditor({mode:"paper",original:item})} disabled={pending.has(item.id)}/></div>
           {item.note?<p className="flow-note">{item.note}</p>:null}<div className="flow-progress"><span>{done===item.stages.length?"每一步，都算数。":"一点一点，往前走。"}</span><span>{done} / {item.stages.length}</span></div><div className="progress-track"><span style={{width:`${done/item.stages.length*100}%`}}/></div>
           <ol className="stage-list">{item.stages.map((stage,n)=><li className={`${stage.done?"stage-done":""} ${current===n?"stage-current":""}`} key={stage.id}><div className="stage-row"><button className={`check-circle ${stage.done?"checked":""}`} aria-label={`${stage.done?"撤销完成":"完成阶段"}：${stage.text}`} aria-pressed={stage.done} disabled={pending.has(item.id)} onClick={()=>void toggleStage(item,stage.id)}><Icon name="check" size={12}/></button><span>{stage.text}</span>{current===n?<span className="current-dot" title="当前阶段"/>:null}</div>{n<item.stages.length-1?<span className="stage-arrow"><Icon name="arrow" size={21}/></span>:null}</li>)}</ol>
@@ -300,7 +317,7 @@ function EditDialog({editor,onClose,onSubmit,onArchive}:{editor:Editor;onClose:(
       {editor.mode==="paper"?<><div className="field-label stage-label">把它分成几步 <span>从上往下，一步一步来</span></div><div className="stage-editor">{stages.map((s,i)=><div className="stage-edit-wrap" key={s.id}><div className="stage-edit-row"><span className={`step-index ${s.done?"is-complete":""}`}>{s.done?<Icon name="check" size={12}/>:String(i+1).padStart(2,"0")}</span><input aria-label={`第${i+1}阶段`} placeholder={i===0?"从哪一步开始？":"接下来做什么？"} value={s.text} onChange={e=>setStages(stages.map(t=>t.id===s.id?{...t,text:e.target.value}:t))} maxLength={300} disabled={busy}/><IconButton name="close" label={`移除第${i+1}阶段`} onClick={()=>setStages(stages.filter(t=>t.id!==s.id))} disabled={busy||stages.length===1}/></div>{i<stages.length-1?<span className="editor-arrow">↓</span>:null}</div>)}</div><button type="button" className="text-button add-stage" onClick={()=>setStages([...stages,{id:newId(),text:"",done:false}])} disabled={busy||stages.length>=30}><Icon name="plus" size={16}/>再加一步</button><div className="paper-color-row"><span className="field-label">纸张颜色</span><div className="color-options">{paperColors.map(c=><button type="button" className={`color-swatch ${c.id} ${color===c.id?"selected":""}`} key={c.id} title={c.label} aria-label={`${c.label}纸张`} aria-pressed={color===c.id} disabled={busy} onClick={()=>setColor(c.id)}>{color===c.id?<Icon name="check" size={14}/>:null}</button>)}</div></div></>:null}
       {validation?<p className="form-error" role="alert">{validation}</p>:null}</div><div className="modal-footer">{onArchive?<button className="text-button archive-edit" type="button" onClick={onArchive} disabled={busy}><Icon name="archive" size={15}/>归档</button>:<span className="footer-note">计划可以随时修改。</span>}<div className="footer-buttons"><button type="button" className="quiet-button" onClick={close} disabled={busy}>先放一放</button><button className="primary" type="submit" disabled={busy}>{busy?"正在保存…":editor.mode==="todo"?"保存修改":old?"保存修改":"贴到墙上"}<Icon name={old?"check":"plus"} size={16}/></button></div></div></form></Modal>;
 }
-function ArchiveDialog({items,pending,onClose,onRestore,onExport}:{items:SavedItem[];pending:Set<string>;onClose:()=>void;onRestore:(item:SavedItem)=>Promise<void>;onExport:()=>void}) {
+function ArchiveDialog({items,pending,onClose,onRestore,onExport}:{items:SavedContentItem[];pending:Set<string>;onClose:()=>void;onRestore:(item:SavedContentItem)=>Promise<void>;onExport:()=>void}) {
   const [tab,setTab]=useState("all");const [query,setQuery]=useState("");
   const filtered=items.filter(i=>(tab==="all"||i.kind===tab)&&i.title.toLowerCase().includes(query.toLowerCase()));
   return <Modal onClose={onClose} label="归档盒" className="archive-modal"><div className="modal-header"><div><span className="eyebrow">GOOD THINGS, DONE</span><h2>归档盒<span className="heading-count">{items.length}</span></h2><p>做过的事，都好好收在这里。</p></div><IconButton label="关闭归档盒" name="close" onClick={onClose}/></div><div className="archive-tools"><div className="archive-tabs">{[{id:"all",label:"全部"},{id:"todo",label:"近期事项"},{id:"paper",label:"流程纸"}].map(t=><button key={t.id} className={tab===t.id?"selected":""} onClick={()=>setTab(t.id)}>{t.label}</button>)}</div><input className="archive-search" aria-label="搜索归档" placeholder="找一件事…" value={query} onChange={e=>setQuery(e.target.value)}/></div><div className="archive-list">{filtered.length===0?<div className="archive-empty"><Icon name="archive" size={34}/><h3>{query?"没有找到这件事":"这里还空着"}</h3><p>{query?"换个关键词再试试。":"完成的事项、收起的计划，会出现在这里。"}</p></div>:filtered.map(item=><div className="archive-item" key={item.id}><span className={`archive-item-icon ${item.kind==="paper"?item.color:"linen"}`}><Icon name={item.kind==="todo"?"check":"archive"} size={17}/></span><div className="archive-item-text"><h3>{item.title}</h3>{item.kind==="paper"?<p>{item.stages.map(s=>(s.done?"✓ ":"")+s.text).join(" → ")}</p>:item.note?<p>{item.note}</p>:null}<small>{item.kind==="todo"?"近期事项":"流程纸"}<i>·</i>{new Date(item.archivedAt!).toLocaleDateString("zh-CN")}{item.kind==="paper"?` · ${item.stages.filter(s=>s.done).length}/${item.stages.length} 步完成`:""}</small></div><button className="restore-button" onClick={()=>void onRestore(item)} disabled={pending.has(item.id)}><Icon name="undo" size={15}/><span>放回墙上</span></button></div>)}</div><div className="modal-footer"><span className="footer-note">归档会保留内容，随时可以恢复。</span><button className="text-button" onClick={onExport}><Icon name="download" size={15}/>导出备份</button></div></Modal>;

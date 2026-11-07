@@ -26,3 +26,11 @@ await check("stage status and position persist", async () => { const r = await r
 await check("archive retains payload and restore works", async () => { const d = await (await request("GET")).json(); const current = d.items.find(i => i.id === paper.id); const { revision, updatedAt, ...item } = current; assert.equal((await request("PUT", { item: { ...item, archivedAt: Date.now() }, revision })).status, 200); const archivedData = await (await request("GET")).json(); const archived = archivedData.items.find(i => i.id === paper.id); assert.ok(archived.archivedAt); assert.equal(archived.stages[0].done, true); const { revision: rev, updatedAt: at, ...old } = archived; assert.equal((await request("PUT", { item: { ...old, archivedAt: null }, revision: rev })).status, 200); });
 await check("payload limit enforced", async () => { const r = await fetch(`${origin}/api/items`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: " ".repeat(24001) }); assert.equal(r.status, 413); });
 console.log(JSON.stringify({ passed, localTestIds: [...createdIds] }));
+const layoutId="2ce1919e-cb47-4d06-b360-56c727511ca0";
+const prior=(await (await request("GET")).json()).items.find(i=>i.id===layoutId);
+const layout={id:layoutId,kind:"layout",title:"近期事项位置",createdAt:prior?.createdAt||Date.now(),archivedAt:null,x:140,y:105};
+let layoutRevision=prior?.revision||0;
+await check("recent paper layout saves in the shared wall",async()=>{const r=await request("PUT",{item:layout,revision:layoutRevision});assert.equal(r.status,200);layoutRevision=(await r.json()).item.revision;const read=(await (await request("GET")).json()).items.find(i=>i.id===layoutId);assert.equal(read.x,140);assert.equal(read.y,105);});
+await check("layout uses a single stable id and cannot be archived",async()=>{assert.equal((await request("PUT",{item:{...layout,id:randomUUID()},revision:0})).status,400);assert.equal((await request("PUT",{item:{...layout,archivedAt:Date.now()},revision:layoutRevision})).status,400);});
+await check("concurrent layout changes cannot silently overwrite",async()=>{const a=await Promise.all([request("PUT",{item:{...layout,x:160},revision:layoutRevision}),request("PUT",{item:{...layout,x:180},revision:layoutRevision})]);assert.deepEqual(a.map(r=>r.status).sort(),[200,409]);});
+console.log(JSON.stringify({passed,layoutId}));

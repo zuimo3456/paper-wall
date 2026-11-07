@@ -4,7 +4,17 @@
 .paper.is-flexing:before,.paper.is-flexing:after{opacity:0!important}
 /* The native tape is hidden along with the sheet. During motion, both are
    rendered into one depth-tested canvas: no top-level tape stacking context. */
-.paper.is-flexing>:not(.paper-flex){opacity:0!important;pointer-events:none!important}
+.paper.is-flexing>:not(.paper-flex){opacity:0!important}
+.paper{user-select:none;-webkit-user-select:none;-webkit-user-drag:none;cursor:grab}
+.paper *{-webkit-user-drag:none}
+.paper input,.paper textarea{user-select:text;-webkit-user-select:text;cursor:text}
+.paper.is-flexing{cursor:grab}
+.paper.is-dragging{cursor:grabbing}
+.paper.is-front{z-index:5}
+.recent-paper{margin:0!important}
+.recent-paper .paper-drag-handle{margin:-32px -27px 0;padding:32px 27px 0;gap:10px}
+.recent-heading .paper-number{margin-left:auto}
+.paper-drag-handle .grip-dots{opacity:.65;font-size:16px}
 .paper-flex{position:absolute;inset:0;pointer-events:none!important;user-select:none;z-index:2}
 .paper-flex-shadow{position:absolute;left:0;top:0;overflow:visible;pointer-events:none!important;opacity:.19;z-index:0}
 .paper-cloth-canvas{display:block;z-index:1;pointer-events:none!important}

@@ -1,4 +1,5 @@
 import type { PaperCloth } from "./paper-cloth-physics";
+import type { PaperTexture } from "./paper-texture";
 
 const vertexSource=`
 attribute vec3 a_position;attribute vec3 a_normal;attribute vec2 a_uv;
@@ -17,7 +18,8 @@ void main(){
   vec4 ink=texture2D(u_texture,v_uv);if(ink.a<0.025)discard;
   if(u_tape){gl_FragColor=ink;return;}
   vec3 n=normalize(v_normal);if(!gl_FrontFacing)n=-n;
-  float light=0.77+0.27*max(dot(n,normalize(vec3(-0.32,-0.43,0.84))),0.0);
+  vec3 direction=normalize(vec3(-0.32,-0.43,0.84));
+  float light=clamp(1.0+0.20*(max(dot(n,direction),0.0)-direction.z),0.83,1.04);
   vec3 color=gl_FrontFacing?ink.rgb:u_back;
   gl_FragColor=vec4(color*light,ink.a);
 }`;
@@ -51,13 +53,13 @@ export class PaperClothRenderer{
   private readonly padding=220;
   private readonly resolution:{width:number;height:number};
   private readonly onLost:(event:Event)=>void;
-  constructor(private readonly paper:HTMLElement,private readonly cloth:PaperCloth,texture:HTMLCanvasElement,onLost:()=>void){
+  constructor(private readonly paper:HTMLElement,private readonly cloth:PaperCloth,texture:PaperTexture,onLost:()=>void){
     this.layer=document.createElement("div");this.layer.className="paper-flex paper-cloth-layer";this.layer.setAttribute("aria-hidden","true");this.layer.inert=true;
     this.shadow=document.createElementNS("http://www.w3.org/2000/svg","svg");this.shadow.classList.add("paper-flex-shadow");this.shadow.setAttribute("width",String(cloth.width));this.shadow.setAttribute("height",String(cloth.height));
     this.shadowPath=document.createElementNS("http://www.w3.org/2000/svg","path");this.shadowPath.setAttribute("fill","#303326");this.shadow.appendChild(this.shadowPath);this.layer.appendChild(this.shadow);
     this.canvas=document.createElement("canvas");this.canvas.className="paper-cloth-canvas";this.canvas.dataset.renderer="point-mesh";
     this.resolution={width:cloth.width+this.padding*2,height:cloth.height+this.padding*2};
-    const ratio=Math.min(window.devicePixelRatio||1,1.6,4000/this.resolution.height);
+    const ratio=Math.min(Math.max(2,window.devicePixelRatio||1),3,4000/this.resolution.height,Math.sqrt(4000000/(this.resolution.width*this.resolution.height)));
     this.canvas.width=Math.ceil(this.resolution.width*ratio);this.canvas.height=Math.ceil(this.resolution.height*ratio);
     Object.assign(this.canvas.style,{position:"absolute",left:`${-this.padding}px`,top:`${-this.padding}px`,width:`${this.resolution.width}px`,height:`${this.resolution.height}px`,pointerEvents:"none"});
     const gl=this.canvas.getContext("webgl",{alpha:true,antialias:true,premultipliedAlpha:false,preserveDrawingBuffer:true});
@@ -71,7 +73,7 @@ export class PaperClothRenderer{
     this.positions=new Float32Array(cloth.nodes.length*3);this.normals=new Float32Array(cloth.nodes.length*3);this.uv=new Float32Array(cloth.nodes.length*2);
     for(let i=0;i<cloth.nodes.length;i++){this.uv[i*2]=cloth.nodes[i].rx/cloth.width;this.uv[i*2+1]=cloth.nodes[i].ry/cloth.height;}
     const upload=(canvas:HTMLCanvasElement)=>{const texture=gl.createTexture()!;gl.bindTexture(gl.TEXTURE_2D,texture);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,canvas);return texture;};
-    this.paperTexture=upload(texture);this.tapeTexture=upload(tapeImage());
+    this.paperTexture=upload(texture.paper);this.tapeTexture=upload(texture.tape||tapeImage());
     const tape=paper.querySelector<HTMLElement>(":scope > .tape"),matrix=tape?new DOMMatrix(getComputedStyle(tape).transform):new DOMMatrix();
     this.tape={x:tape?.offsetLeft??cloth.width/2-43,y:tape?.offsetTop??-12,width:tape?.offsetWidth??86,height:tape?.offsetHeight??28,angle:Math.atan2(matrix.b,matrix.a)};
     gl.enable(gl.DEPTH_TEST);gl.depthFunc(gl.LEQUAL);gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);gl.frontFace(gl.CW);

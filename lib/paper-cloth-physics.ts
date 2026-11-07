@@ -20,6 +20,7 @@ export class PaperCloth{
   private before:Float64Array;
   private windX=0;
   private windZ=0;
+  private returnAge:number|null=null;
   constructor(width:number,height:number,columns=16,rows=24){
     this.width=width;this.height=height;this.columns=columns;this.rows=rows;
     for(let y=0;y<=rows;y++)for(let x=0;x<=columns;x++){
@@ -44,6 +45,7 @@ export class PaperCloth{
   }
   index(x:number,y:number){return y*(this.columns+1)+x;}
   hold(value:ClothContact){
+    this.returnAge=null;
     const u=clamp(value.u,.01,.99),v=clamp(value.v,1.5/this.rows,.995);
     if(!this.grab||Math.abs(this.grab.u-u)>.0001||Math.abs(this.grab.v-v)>.0001){
       const gx=u*this.columns,gy=v*this.rows,x=Math.floor(gx),y=Math.floor(gy),tx=gx-x,ty=gy-y;
@@ -56,8 +58,8 @@ export class PaperCloth{
     this.target={u,v,x:anchorX+dx*ratio,y:dy*ratio,z:clamp(value.z*ratio,0,320)};
   }
   contact(){let x=0,y=0,z=0;for(const a of this.weights){const p=this.nodes[a.index];x+=p.x*a.weight;y+=p.y*a.weight;z+=p.z*a.weight;}return {x,y,z};}
-  release(){this.target=null;this.grab=null;this.weights=[];this.windX=0;this.windZ=0;}
-  gust(x:number,z:number){this.windX=clamp(x,-.65,.65);this.windZ=clamp(z,0,.7);}
+  release(){this.target=null;this.grab=null;this.weights=[];this.windX=0;this.windZ=0;this.returnAge??=0;}
+  gust(x:number,z:number){this.returnAge=null;this.windX=clamp(x,-.65,.65);this.windZ=clamp(z,0,.7);}
   private constrainGrab(){
     if(!this.grab)return;
     const current=this.contact(),denominator=this.weights.reduce((sum,a)=>sum+(this.nodes[a.index].fixed?0:a.weight*a.weight),0);
@@ -66,6 +68,7 @@ export class PaperCloth{
     for(const a of this.weights){const p=this.nodes[a.index];if(p.fixed)continue;const weight=a.weight/denominator;p.x+=dx*weight;p.y+=dy*weight;p.z+=dz*weight;}
   }
   step(dt:number){
+    if(this.returnAge!==null&&!this.grab)this.returnAge+=dt;
     const f=clamp(dt*60,.25,1),damping=Math.pow(this.grab ? .95 : .94,f);
     if(this.target&&this.grab){const mix=1-Math.pow(.6,f);this.grab.x+=(this.target.x-this.grab.x)*mix;this.grab.y+=(this.target.y-this.grab.y)*mix;this.grab.z+=(this.target.z-this.grab.z)*mix;}
     for(let i=0;i<this.nodes.length;i++){
@@ -88,6 +91,14 @@ export class PaperCloth{
     }
     for(let i=0;i<this.nodes.length;i++){
       const p=this.nodes[i];if(p.fixed)continue;p.z=Math.max(0,p.z);
+      // Distance constraints alone can settle into a tangled local minimum.
+      // After release, progressively restore the sheet's known rest shape.
+      // This is independent of the folds or pointer-event rate that produced it.
+      if(this.returnAge!==null){
+        const progress=clamp((this.returnAge-.08)/.95,0,1),mix=1-Math.exp(-(1.5+22*progress*progress)*dt);
+        p.x+=(p.rx-p.x)*mix;p.y+=(p.ry-p.y)*mix;p.z*=1-mix;
+        if(this.returnAge>=1.8){p.x=p.rx;p.y=p.ry;p.z=0;p.vx=0;p.vy=0;p.vz=0;continue;}
+      }
       p.vx=clamp((p.x-this.before[i*3])/f,-16,16);p.vy=clamp((p.y-this.before[i*3+1])/f,-16,16);p.vz=clamp((p.z-this.before[i*3+2])/f,-16,16);
     }
     this.windX*=Math.pow(.93,f);this.windZ*=Math.pow(.93,f);
