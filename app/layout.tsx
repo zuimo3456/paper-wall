@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "./paper-motion.css";
 
 export const metadata: Metadata = {
   title: "纸上 · 我的事项墙",

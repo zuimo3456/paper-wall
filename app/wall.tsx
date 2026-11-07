@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { withoutServerFields, type SavedItem, type WallItem, type Paper, type Todo } from "../lib/wall-model";
+import { installPaperMotion, dragPaperMotion, releasePaper } from "../lib/paper-motion";
 
 type View = { x: number; y: number; scale: number };
 type Editor = { mode: "todo" | "paper"; original?: SavedItem; at?: {x:number;y:number} };
@@ -40,7 +41,7 @@ export default function Wall() {
   const viewRef=useRef(view);viewRef.current=view;
   const viewport=useRef<HTMLDivElement>(null);
   const plane=useRef<HTMLDivElement>(null);
-  const gesture=useRef<{id:string;startX:number;startY:number;origX:number;origY:number;element:HTMLElement;moved:boolean;dx:number;dy:number}|null>(null);
+  const gesture=useRef<{id:string;startX:number;startY:number;origX:number;origY:number;element:HTMLElement;moved:boolean;dx:number;dy:number;lastX:number;lastY:number;lastTime:number}|null>(null);
   const points=useRef(new Map<number,{x:number;y:number}>());
   const pan=useRef<{view:View;point:{x:number;y:number};distance:number;count:number}|null>(null);
   const touchCamera=useRef(false);
@@ -48,6 +49,7 @@ export default function Wall() {
   const [dragging,setDragging]=useState(false);
   const [activePaper,setActivePaper]=useState<string|null>(null);
   const readSeq=useRef(0);
+  useEffect(()=>{if(plane.current)return installPaperMotion(plane.current);},[]);
 
   const refresh=useCallback(async(quiet=false)=>{
     if(pendingRef.current.size || gesture.current) return;
@@ -162,7 +164,7 @@ export default function Wall() {
     points.current.set(e.pointerId,{x:e.clientX,y:e.clientY});
     if(points.current.size<2)return;
     const g=gesture.current;
-    if(g){g.element.classList.remove("is-dragging");g.element.style.left=`${g.origX}px`;g.element.style.top=`${g.origY}px`;gesture.current=null;}
+    if(g){g.element.classList.remove("is-dragging");g.element.style.left=`${g.origX}px`;g.element.style.top=`${g.origY}px`;releasePaper(g.element);gesture.current=null;}
     e.currentTarget.setPointerCapture(e.pointerId);
     const p=pointSummary();pan.current={view:viewRef.current,point:p.center,distance:p.distance,count:p.count};
     touchCamera.current=true;setDragging(true);e.preventDefault();e.stopPropagation();
@@ -179,16 +181,21 @@ export default function Wall() {
     if(e.button!==0 || pendingRef.current.has(item.id) || gesture.current)return;
     e.stopPropagation();e.currentTarget.setPointerCapture(e.pointerId);
     const el=e.currentTarget.closest(".paper") as HTMLElement;
-    gesture.current={id:item.id,startX:e.clientX,startY:e.clientY,origX:item.x,origY:item.y,element:el,moved:false,dx:0,dy:0};setActivePaper(item.id);
+    gesture.current={id:item.id,startX:e.clientX,startY:e.clientY,origX:item.x,origY:item.y,element:el,moved:false,dx:0,dy:0,lastX:0,lastY:0,lastTime:performance.now()};setActivePaper(item.id);
   }
   function movePaper(e:ReactPointerEvent<HTMLElement>) {
     const g=gesture.current;if(!g)return;e.stopPropagation();
     const dx=(e.clientX-g.startX)/viewRef.current.scale,dy=(e.clientY-g.startY)/viewRef.current.scale;
     g.dx=clamp(g.origX+dx,-2800,5800)-g.origX;g.dy=clamp(g.origY+dy,-2800,5800)-g.origY;
-    if(Math.abs(dx)+Math.abs(dy)>4){g.moved=true;g.element.classList.add("is-dragging");g.element.style.left=`${g.origX+g.dx}px`;g.element.style.top=`${g.origY+g.dy}px`;}
+    if(Math.abs(dx)+Math.abs(dy)>4){
+      const timestamp=performance.now(),elapsed=Math.max(8,timestamp-g.lastTime);
+      dragPaperMotion(g.element,(g.dx-g.lastX)/elapsed,(g.dy-g.lastY)/elapsed);
+      g.lastX=g.dx;g.lastY=g.dy;g.lastTime=timestamp;
+      g.moved=true;g.element.classList.add("is-dragging");g.element.style.left=`${g.origX+g.dx}px`;g.element.style.top=`${g.origY+g.dy}px`;
+    }
   }
   async function endPaper(e:ReactPointerEvent<HTMLElement>,cancel=false) {
-    const g=gesture.current;if(!g)return;e.stopPropagation();gesture.current=null;g.element.classList.remove("is-dragging");
+    const g=gesture.current;if(!g)return;e.stopPropagation();gesture.current=null;g.element.classList.remove("is-dragging");releasePaper(g.element);
     const item=itemsRef.current.find(i=>i.id===g.id) as PaperItem|undefined;
     if(!item)return;
     if(g.moved&&!cancel){const result=await save({...withoutServerFields(item),x:g.origX+g.dx,y:g.origY+g.dy} as Paper,item.revision);if(!result){g.element.style.left=`${item.x}px`;g.element.style.top=`${item.y}px`;}}
@@ -239,6 +246,7 @@ export default function Wall() {
           </div>
           <form className="quick-add" onSubmit={addTodo}><Icon name="plus" size={17}/><input aria-label="添加近期事项" placeholder="添加一件小事…" maxLength={120} value={quickTodo} onChange={e=>setQuickTodo(e.target.value)} disabled={!loaded}/><button type="submit" aria-label="添加事项" disabled={!quickTodo.trim()||!loaded||quickBusy}><span>↵</span></button></form>
           <div className="paper-footer"><span>{todos.length?`${String(todos.length).padStart(2,"0")} 件待办`:"留一点空白，也很好"}</span><span className="handwritten">take your time</span></div>
+          <span className="paper-curl"/>
         </section>
         {papers.map((item,index)=>{const current=item.stages.findIndex(s=>!s.done),done=item.stages.filter(s=>s.done).length;return <section key={item.id} className={`paper flow-paper ${item.color} ${activePaper===item.id?"is-front":""}`} style={{left:item.x,top:item.y,"--tilt":`${item.tilt}deg`} as React.CSSProperties} aria-label={`流程纸：${item.title}`}>
           <span className="tape"/><div className="paper-drag-handle" onPointerDown={e=>startPaper(e,item)} onPointerMove={movePaper} onPointerUp={e=>void endPaper(e)} onPointerCancel={e=>void endPaper(e,true)}><span className="eyebrow">LITTLE STEPS, BIG THINGS</span><span className="grip-dots" aria-hidden="true">⠿</span></div>
